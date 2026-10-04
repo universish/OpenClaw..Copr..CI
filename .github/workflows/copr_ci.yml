@@ -171,9 +171,17 @@ jobs:
           
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
-          cp openclaw.spec rpmbuild/SPECS/
-          cp openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || true
-          cp com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || true
+          
+          # specs/ altındaki spec dosyasını kopyala
+          if [ -f specs/openclaw.spec ]; then
+            cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
+          elif [ -f openclaw.spec ]; then
+            cp openclaw.spec rpmbuild/SPECS/openclaw.spec
+          fi
+
+          # Varsa desktop ve metainfo dosyalarını SOURCES içine aktar
+          cp specs/openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || cp openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || cp sources/openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || true
+          cp specs/com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || cp com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || cp sources/com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || true
 
           rpmbuild -bs \
             --define "_topdir $PWD/rpmbuild" \
