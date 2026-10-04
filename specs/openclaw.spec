@@ -62,7 +62,7 @@ desktop-file-install \
 mkdir -p %{buildroot}%{_metainfodir}
 install -m 0644 %{SOURCE1} %{buildroot}%{_metainfodir}/com.openclaw.openclaw.metainfo.xml
 
-# Uygulama simgesi (Icon)
+# Uygulama simgesi (Icon) 
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
 if [ -f app/%{name}.png ]; then
     install -m 0644 app/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
