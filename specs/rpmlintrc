@@ -1,0 +1,33 @@
+# GUI / CLI uygulaması; upstream man page sağlamaz ve dokümansız
+# payload bu COPR rewrap işlemi için bilinçli bir tercihtir.
+addFilter("no-manual-page-for-binary")
+addFilter("no-documentation")
+
+# Upstream prebuilt ELF dosyaları sembol tablolarını (.symtab) içerir.
+# %global debug_package %{nil} tanımı ile uyumlu olarak bu durum filtrelenir.
+addFilter("unstripped-binary-or-object")
+
+# %description içerisinde geçen teknik terimler için sözlük filtreleri.
+addFilter("spelling-error .*rewraps")
+addFilter("spelling-error .*prebuilt")
+addFilter("spelling-error .*OpenClaw")
+
+# /usr/bin/openclaw, /opt/openclaw/openclaw ikili dosyasına işaret eden bir
+# sembolik bağdır. rpmlint Exec= ile doğrudan hedef eşleştiremediğinde tetiklenir.
+addFilter("desktopfile-without-binary")
+
+# Prebuilt Node/Electron motoru Fedora'nın sistem crypto-policy kuralları yerine
+# doğrudan OpenSSL çağrıları yapar; upstream blob derlemesinden kaynaklanır.
+addFilter("crypto-policy-non-compliance-openssl")
+
+# /opt/openclaw altındaki özel paylaşımlı kütüphaneler $ORIGIN RUNPATH ile çalışır.
+# Sistem kütüphane yolunda olmadıklarından yürütme yetkisi ve çıplak SONAME kuralları filtrelenir.
+addFilter("shared-library-not-executable")
+addFilter("no-soname")
+addFilter("invalid-soname")
+addFilter("missing-gnu-hash-section")
+addFilter("binary-or-shlib-defines-rpath")
+
+# Upstream uygulama yapısı doğrudan /opt/openclaw altına yerleştirilir.
+# COPR-only bir yeniden paketleme olduğundan bu dizin yapısı korunmalıdır.
+addFilter("dir-or-file-in-opt")

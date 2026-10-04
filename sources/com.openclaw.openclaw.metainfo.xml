@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.openclaw.openclaw</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Proprietary</project_license>
+  <name>OpenClaw</name>
+  <summary>All your chats, one OpenClaw - AI Assistant and Gateway</summary>
+
+  <description>
+    <p>
+      OpenClaw is an extensible personal AI assistant and unified communication gateway 
+      designed to automate workflows and coordinate interactions across various chat channels 
+      directly from your local system.
+    </p>
+    <p>Key features include:</p>
+    <ul>
+      <li>Unified communication interface connecting messaging platforms with local terminal environments.</li>
+      <li>Local gateway daemon management with real-time health checks and status diagnostics.</li>
+      <li>Extensible plugin ecosystem for automated agent actions and chat management.</li>
+      <li>Seamless desktop integration and command-line orchestration.</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">openclaw.desktop</launchable>
+
+  <url type="homepage">https://openclaw.ai</url>
+  <url type="bugtracker">https://github.com/openclaw/openclaw/issues</url>
+  <url type="vcs-browser">https://github.com/openclaw/openclaw</url>
+  <url type="help">https://docs.openclaw.ai</url>
+
+  <developer>
+    <name>OpenClaw Team</name>
+  </developer>
+
+  <categories>
+    <category>Utility</category>
+    <category>Network</category>
+    <category>Chat</category>
+  </categories>
+
+  <provides>
+    <binary>openclaw</binary>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="2026.9.5" date="2026-09-05">
+      <description>
+        <p>Upstream desktop release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

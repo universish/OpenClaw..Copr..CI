@@ -1,0 +1,193 @@
+name: Check Update and Build Copr RPM
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_version:
+        description: 'Manuel sürüme zorla (örn: 2026.9.5)'
+        required: false
+        default: ''
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+      options: --user root
+
+    steps:
+      - name: Gerekli Paketleri Kur
+        run: |
+          dnf install -y \
+            git curl jq rpm-build binutils tar xz zstd p7zip p7zip-plugins squashfs-tools copr-cli
+
+      - name: Depoyu Klonla
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Copr Kimlik Bilgilerini Yapılandır
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+        run: |
+          mkdir -p ~/.config
+          echo "$COPR_CONFIG" > ~/.config/copr
+          chmod 600 ~/.config/copr
+
+      - name: Sürüm ve Yayın Dosyalarını İncele
+        id: check
+        run: |
+          UPSTREAM_REPO="openclaw/openclaw"
+          
+          if [ -n "${{ github.event.inputs.force_version }}" ]; then
+            TAG="v${{ github.event.inputs.force_version }}"
+            RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/releases/tags/${TAG}" || true)
+          else
+            RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest" || true)
+            TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name // empty')
+          fi
+
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Upstream üzerinde geçerli bir release bulunamadı."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VERSION="${TAG#v}"
+          echo "Hedef Sürüm: $VERSION"
+
+          # Önceki yerel sürüm kaydını kontrol et
+          LAST_BUILD=""
+          [ -f latest-version.txt ] && LAST_BUILD=$(cat latest-version.txt)
+
+          if [ -z "${{ github.event.inputs.force_version }}" ] && [ "$LAST_BUILD" = "$VERSION" ]; then
+            echo "Bu sürüm ($VERSION) zaten paketlendi. İşlem atlanıyor."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Asset taraması ve öncelik kontrolü:
+          # Öncelik 1: .deb | Öncelik 2: .AppImage
+          DEB_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("OpenClaw.*amd64\\.deb$|.*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
+          APPIMAGE_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("OpenClaw.*amd64\\.AppImage$|.*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
+
+          if [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
+            echo "Paket tipi: .deb bulundu (Öncelikli tercih)"
+            echo "download_url=$DEB_URL" >> $GITHUB_OUTPUT
+            echo "pkg_type=deb" >> $GITHUB_OUTPUT
+          elif [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
+            echo "Paket tipi: .AppImage bulundu (.deb bulunamadı, fallback)"
+            echo "download_url=$APPIMAGE_URL" >> $GITHUB_OUTPUT
+            echo "pkg_type=appimage" >> $GITHUB_OUTPUT
+          else
+            echo "UYARI: Bu sürümde prebuilt .deb veya .AppImage bulunamadı (yalnızca kaynak/npm)."
+            echo "Bu depo salt paketleme deposu olduğu için işlem atlanıyor."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: Paketi İndir, Aç ve Standartlaştır
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          PKG_TYPE="${{ steps.check.outputs.pkg_type }}"
+          URL="${{ steps.check.outputs.download_url }}"
+          
+          mkdir -p workdir app_extracted
+          cd workdir
+
+          if [ "$PKG_TYPE" = "deb" ]; then
+            echo "deb paketi indiriliyor: $URL"
+            curl -fsSL -o package.deb "$URL"
+            ar x package.deb
+            
+            # data.tar.* arşivini ayıkla (xz, gz, zst destekler)
+            DATA_ARCHIVE=$(ls data.tar.*)
+            tar -xf "$DATA_ARCHIVE" -C ../app_extracted/
+            
+            cd ../app_extracted
+            # deb genellikle /opt/OpenClaw veya /usr/lib içerir, normalize edelim:
+            mkdir -p ../bundle/app
+            if [ -d opt/OpenClaw ]; then
+              cp -a opt/OpenClaw/* ../bundle/app/
+            elif [ -d opt/openclaw ]; then
+              cp -a opt/openclaw/* ../bundle/app/
+            elif [ -d usr/lib/openclaw ]; then
+              cp -a usr/lib/openclaw/* ../bundle/app/
+            fi
+
+            # Desktop ve icon dosyalarını tara
+            DESKTOP_SRC=$(find . -name "*openclaw*.desktop" -o -name "*OpenClaw*.desktop" | head -n 1 || true)
+            [ -n "$DESKTOP_SRC" ] && cp -a "$DESKTOP_SRC" ../bundle/app/openclaw.desktop
+
+            ICON_SRC=$(find . -name "*openclaw*.png" -o -name "*OpenClaw*.png" | head -n 1 || true)
+            [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png
+
+          elif [ "$PKG_TYPE" = "appimage" ]; then
+            echo "AppImage indiriliyor: $URL"
+            curl -fsSL -o package.AppImage "$URL"
+            
+            # FUSE bağımlılığı olmadan 7z ile doğrudan squashfs katmanını aç
+            7z x package.AppImage -o../app_extracted/ > /dev/null || unsquashfs -d ../app_extracted package.AppImage
+            
+            cd ../app_extracted
+            mkdir -p ../bundle/app
+            cp -a * ../bundle/app/
+
+            # Ana ikiliyi 'openclaw' adıyla hazır tut
+            if [ ! -f ../bundle/app/openclaw ]; then
+              MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -name "OpenClaw" -o -name "openclaw" | head -n 1)
+              [ -n "$MAIN_BIN" ] && cp -a "$MAIN_BIN" ../bundle/app/openclaw
+            fi
+            
+            DESKTOP_SRC=$(find . -maxdepth 1 -name "*.desktop" | head -n 1 || true)
+            [ -n "$DESKTOP_SRC" ] && cp -a "$DESKTOP_SRC" ../bundle/app/openclaw.desktop
+
+            ICON_SRC=$(find . -maxdepth 1 -name "*.png" | head -n 1 || true)
+            [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png
+          fi
+
+          cd "$GITHUB_WORKSPACE"
+          
+          # Arşiv kök klasör adı spec dosyasıyla eşleşir: openclaw-<version>-x86_64
+          mv bundle "openclaw-${VERSION}-x86_64"
+          tar -czf "openclaw-${VERSION}-x86_64.tar.gz" "openclaw-${VERSION}-x86_64"
+          rm -rf workdir app_extracted "openclaw-${VERSION}-x86_64"
+
+      - name: SRPM Oluştur ve Copr'a Gönder
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          
+          mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
+          cp openclaw.spec rpmbuild/SPECS/
+
+          echo "SRPM derleniyor..."
+          rpmbuild -bs \
+            --define "_topdir $PWD/rpmbuild" \
+            --define "_version ${VERSION}" \
+            rpmbuild/SPECS/openclaw.spec
+
+          SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
+          echo "Oluşturulan SRPM: $SRPM_FILE"
+
+          echo "Copr deposuna yükleniyor: universish/OpenClaw.."
+          copr-cli build --nowait "universish/OpenClaw.." "$SRPM_FILE"
+
+      - name: Sürümü Güncelle ve Depoya Kaydet
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          VERSION="${{ steps.check.outputs.version }}"
+          echo "$VERSION" > latest-version.txt
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add latest-version.txt
+          git commit -m "chore: release ${VERSION} build triggered on Copr" || exit 0
+          git push
