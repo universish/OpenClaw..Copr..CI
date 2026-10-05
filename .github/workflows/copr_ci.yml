@@ -179,10 +179,7 @@ jobs:
             cp openclaw.spec rpmbuild/SPECS/openclaw.spec
           fi
 
-          # Varsa desktop ve metainfo dosyalarını SOURCES içine aktar
-          cp specs/openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || cp openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || cp sources/openclaw.desktop rpmbuild/SOURCES/ 2>/dev/null || true
-          cp specs/com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || cp com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || cp sources/com.openclaw.openclaw.metainfo.xml rpmbuild/SOURCES/ 2>/dev/null || true
-
+          # Yalnızca Source0 (tarball) ile SRPM derle
           rpmbuild -bs \
             --define "_topdir $PWD/rpmbuild" \
             --define "_version ${VERSION}" \
