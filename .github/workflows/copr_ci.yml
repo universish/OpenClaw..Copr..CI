@@ -179,16 +179,18 @@ jobs:
             cp openclaw.spec rpmbuild/SPECS/openclaw.spec
           fi
 
-          # Yalnızca Source0 (tarball) ile SRPM derle
+          # Sürümü spec dosyasının içine kalıcı olarak yaz (Mock unexpanded macro hatasını çözer)
+          sed -i "s/%{_version}/${VERSION}/g" rpmbuild/SPECS/openclaw.spec
+
+          # SRPM paketini oluştur
           rpmbuild -bs \
             --define "_topdir $PWD/rpmbuild" \
-            --define "_version ${VERSION}" \
             rpmbuild/SPECS/openclaw.spec
 
           SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
           echo "Oluşturulan SRPM: $SRPM_FILE"
 
-          copr-cli build --nowait "universish/OpenClaw.." "$SRPM_FILE"
+          copr-cli --config /root/.config/copr build --nowait "universish/OpenClaw.." "$SRPM_FILE"
 
       - name: Sürümü Güncelle ve Değişiklikleri Kaydet
         if: steps.check.outputs.skip == 'false'
