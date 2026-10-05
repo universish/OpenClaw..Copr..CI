@@ -192,7 +192,8 @@ jobs:
           echo "Oluşturulan SRPM: $SRPM_FILE"
 
           copr-cli --config /root/.config/copr build --nowait "universish/OpenClaw.." "$SRPM_FILE"
-
+          copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
+          
       - name: Sürümü Güncelle ve Değişiklikleri Kaydet
         if: steps.check.outputs.skip == 'false'
         run: |
