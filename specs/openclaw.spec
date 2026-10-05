@@ -13,28 +13,24 @@ License:        Proprietary
 URL:            https://openclaw.ai
 ExclusiveArch:  x86_64
 
+# Yalnızca tek kaynak (tarball) yeterlidir; desktop içeriği aşağıda üretilir
 Source0:        openclaw-%{version}-x86_64.tar.gz
-Source1:        com.openclaw.openclaw.metainfo.xml
-Source2:        openclaw.desktop
 
 BuildRequires:  desktop-file-utils
-BuildRequires:  libappstream-glib
 
-# npm demeti sistem Node.js çalışma ortamını kullanır
 Requires:       nodejs >= 1:24.16.0
 Requires:       hicolor-icon-theme
 Requires:       xdg-utils
 
 %description
 OpenClaw is a personal AI assistant and communication gateway.
-This package repackages the upstream distribution (deb, AppImage, or npm bundle)
-into a native Fedora RPM.
+This package repackages the upstream prebuilt distribution into a native Fedora RPM.
 
 %prep
 %autosetup -n openclaw-%{version}-x86_64
 
 %build
-# Önceden paketlenmiş demet (Prebuilt / npm bundle) - derleme adımı gerekmez.
+# Prebuilt binary / npm bundle - derleme adımı gerekmez.
 
 %install
 rm -rf %{buildroot}
@@ -43,7 +39,7 @@ rm -rf %{buildroot}
 mkdir -p %{buildroot}/opt/%{name}
 cp -a app/* %{buildroot}/opt/%{name}/
 
-# Çalıştırılabilir ikili dosya ve symlink yapılandırması
+# Çalıştırılabilir ikili dosya ve sembolik bağ
 mkdir -p %{buildroot}%{_bindir}
 if [ -f %{buildroot}/opt/%{name}/bin/%{name} ]; then
     chmod +x %{buildroot}/opt/%{name}/bin/%{name}
@@ -54,15 +50,39 @@ else
 fi
 
 # Desktop dosyası kurulumu
-desktop-file-install \
-    --dir=%{buildroot}%{_datadir}/applications \
-    %{SOURCE2}
+mkdir -p %{buildroot}%{_datadir}/applications
 
-# AppStream Metainfo kurulumu
-mkdir -p %{buildroot}%{_metainfodir}
-install -m 0644 %{SOURCE1} %{buildroot}%{_metainfodir}/com.openclaw.openclaw.metainfo.xml
+DESKTOP_SRC=""
+if [ -f app/%{name}.desktop ]; then
+    DESKTOP_SRC="app/%{name}.desktop"
+elif [ -f app/OpenClaw.desktop ]; then
+    DESKTOP_SRC="app/OpenClaw.desktop"
+fi
 
-# Uygulama simgesi (Icon) 
+if [ -n "$DESKTOP_SRC" ]; then
+    # Upstream dosyasını kur ve Exec satırına Wayland/NVIDIA bayraklarını yerleştir
+    install -m 0644 "$DESKTOP_SRC" %{buildroot}%{_datadir}/applications/%{name}.desktop
+    sed -i 's|^Exec=.*|Exec=/usr/bin/openclaw --ozone-platform-hint=auto --disable-features=Vulkan --enable-features=WaylandWindowDecorations %U|' \
+        %{buildroot}%{_datadir}/applications/%{name}.desktop
+else
+    # Dosya yoksa (örneğin npm paketinde) sıfırdan oluştur
+    cat << 'EOF' > %{buildroot}%{_datadir}/applications/%{name}.desktop
+[Desktop Entry]
+Name=OpenClaw
+Comment=All your chats, one OpenClaw - AI Assistant and Gateway
+GenericName=AI Assistant
+Exec=/usr/bin/openclaw --ozone-platform-hint=auto --disable-features=Vulkan --enable-features=WaylandWindowDecorations %U
+Icon=openclaw
+Type=Application
+StartupNotify=true
+StartupWMClass=openclaw
+Terminal=false
+Categories=Utility;Network;Chat;
+MimeType=x-scheme-handler/openclaw;
+EOF
+fi
+
+# Uygulama simgesi (Icon)
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
 if [ -f app/%{name}.png ]; then
     install -m 0644 app/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
@@ -70,15 +90,13 @@ fi
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
-appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/com.openclaw.openclaw.metainfo.xml
 
 %files
 /opt/%{name}
 %{_bindir}/%{name}
 %{_datadir}/applications/%{name}.desktop
-%{_metainfodir}/com.openclaw.openclaw.metainfo.xml
 %{_datadir}/icons/hicolor/512x512/apps/%{name}.png
 
 %changelog
 * Sun Oct 04 2026 Saffet Yavuz <universish> - %{version}-1
-- Automatic packaging from upstream deb, AppImage, or npm bundle.
+- Automatic packaging from upstream release.
