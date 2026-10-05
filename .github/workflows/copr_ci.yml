@@ -117,54 +117,78 @@ jobs:
           cd workdir
 
           if [ "$PKG_TYPE" = "deb" ]; then
-            echo ".deb paketi açılıyor..."
+            echo ".deb paketi açılıyor: $URL"
             curl -fsSL -o package.deb "$URL"
             ar x package.deb
             tar -xf data.tar.* -C ../app_extracted/
             cd ../app_extracted
-            if [ -d opt/OpenClaw ]; then
-              cp -a opt/OpenClaw/* ../bundle/app/
-            elif [ -d opt/openclaw ]; then
-              cp -a opt/openclaw/* ../bundle/app/
-            elif [ -d usr/lib/openclaw ]; then
-              cp -a usr/lib/openclaw/* ../bundle/app/
+            
+            echo "Açılan paket içeriği taranıyor..."
+            # 1. opt altında herhangi bir klasör var mı? (Adı ne olursa olsun al)
+            OPT_DIR=$(find opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+            if [ -n "$OPT_DIR" ]; then
+              echo "opt altında uygulama dizini bulundu: $OPT_DIR"
+              cp -a "$OPT_DIR"/* ../bundle/app/
+            # 2. usr/share veya usr/lib altında openclaw klasörü var mı?
+            elif find usr/share usr/lib -maxdepth 1 -type d -iname "*openclaw*" 2>/dev/null | grep -q .; then
+              APP_DIR=$(find usr/share usr/lib -maxdepth 1 -type d -iname "*openclaw*" 2>/dev/null | head -n 1)
+              echo "usr altında uygulama dizini bulundu: $APP_DIR"
+              cp -a "$APP_DIR"/* ../bundle/app/
+            # 3. Klasörsüz doğrudan usr/ altına mı dağıtılmış?
+            elif [ -d usr/bin ]; then
+              echo "Doğrudan /usr hiyerarşisi bulundu."
+              cp -a usr/* ../bundle/app/
+            else
+              echo "Özel yapı algılanamadı, tüm içerik aktarılıyor."
+              cp -a * ../bundle/app/
             fi
 
+            # Simgeyi bul ve aktar
+            ICON_SRC=$(find . -name "*openclaw*.png" -o -name "*OpenClaw*.png" -o -name "*.png" | head -n 1 || true)
+            [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png || true
+
           elif [ "$PKG_TYPE" = "appimage" ]; then
-            echo ".AppImage paketi açılıyor..."
+            echo ".AppImage paketi açılıyor: $URL"
             curl -fsSL -o package.AppImage "$URL"
             7z x package.AppImage -o../app_extracted/ > /dev/null || unsquashfs -d ../app_extracted package.AppImage
             cd ../app_extracted
             cp -a * ../bundle/app/
+            
             if [ ! -f ../bundle/app/openclaw ]; then
-              MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -name "OpenClaw" -o -name "openclaw" | head -n 1)
+              MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -iname "openclaw" | head -n 1)
               [ -n "$MAIN_BIN" ] && cp -a "$MAIN_BIN" ../bundle/app/openclaw
             fi
 
+            ICON_SRC=$(find . -maxdepth 1 -name "*.png" | head -n 1 || true)
+            [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png || true
+
           elif [ "$PKG_TYPE" = "npm" ]; then
             echo "npm paketi demetleniyor..."
-            # /opt/openclaw yapısına denk gelecek şekilde global önek ile yükleme yapılır
             npm install -g --prefix "$GITHUB_WORKSPACE/bundle/app" --omit=dev --no-audit --no-fund "openclaw@${VERSION}"
-            
-            # npm global kurulumu bin ve lib/node_modules üretir; ana çalıştırma dosyasını hazırla
             cd "$GITHUB_WORKSPACE/bundle/app"
             if [ -f bin/openclaw ]; then
               ln -sf bin/openclaw openclaw
             fi
           fi
 
+          # GÜVENLİK KONTROLÜ: bundle/app boş kaldıysa Copr'a bozuk paket gönderme
+          if [ -z "$(ls -A "$GITHUB_WORKSPACE/bundle/app" 2>/dev/null)" ]; then
+            echo "HATA: bundle/app dizinine hiçbir dosya kopyalanamadı!"
+            echo "app_extracted içinde bulunan tüm dosyalar:"
+            cd "$GITHUB_WORKSPACE/app_extracted" && find . -maxdepth 3
+            exit 1
+          fi
+
           cd "$GITHUB_WORKSPACE"
           
-          # Depodaki simgeyi demete ekle (yoksa oluştur)
-          if [ -f openclaw.png ]; then
-            cp -a openclaw.png bundle/app/openclaw.png
-          fi
+          # openclaw ikilisinin çalıştırılabilir olduğundan emin ol
+          find bundle/app/ -type f -iname "openclaw" -exec chmod +x {} + 2>/dev/null || true
 
           # Arşiv kök dizinini hazırla: openclaw-<VERSION>-x86_64
           mv bundle "openclaw-${VERSION}-x86_64"
           tar -czf "openclaw-${VERSION}-x86_64.tar.gz" "openclaw-${VERSION}-x86_64"
           rm -rf workdir app_extracted "openclaw-${VERSION}-x86_64"
-
+          
       - name: SRPM Oluştur ve Copr'a Gönder
         if: steps.check.outputs.skip == 'false'
         run: |
