@@ -1,3 +1,35 @@
+%global debug_package %{nil}
+%global __strip /bin/true
+%global __brp_mangle_shebangs /bin/true
+%global __provides_exclude_from ^/opt/%{name}/.*$
+%global __requires_exclude_from ^/opt/%{name}/.*$
+%global _build_id_links none
+
+Name:           openclaw
+Version:        %{_version}
+Release:        1%{?dist}
+Summary:        All your chats, one OpenClaw - AI Assistant and Gateway
+License:        Proprietary
+URL:            https://openclaw.ai
+ExclusiveArch:  x86_64
+
+Source0:        openclaw-%{version}-x86_64.tar.gz
+
+BuildRequires:  desktop-file-utils
+
+Requires:       hicolor-icon-theme
+Requires:       xdg-utils
+
+%description
+OpenClaw is a personal AI assistant and communication gateway.
+This package repackages the upstream prebuilt distribution into a native Fedora RPM.
+
+%prep
+%autosetup -n openclaw-%{version}-x86_64
+
+%build
+# Prebuilt binary / AppImage - derleme adımı gerekmez.
+
 %install
 rm -rf %{buildroot}
 
@@ -5,11 +37,11 @@ rm -rf %{buildroot}
 mkdir -p %{buildroot}/opt/%{name}
 cp -a app/* %{buildroot}/opt/%{name}/
 
-# Çalıştırılabilir dosyaların izinlerini güvenceye al
+# Dosya izinleri
 chmod -R a+rX %{buildroot}/opt/%{name}
 find %{buildroot}/opt/%{name} -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
 
-# /usr/bin/openclaw için kararlı başlatıcı betik
+# /usr/bin/openclaw başlatıcı betiği
 mkdir -p %{buildroot}%{_bindir}
 cat << 'EOF' > %{buildroot}%{_bindir}/%{name}
 #!/usr/bin/env bash
@@ -17,7 +49,6 @@ set -e
 
 APP_DIR="/opt/openclaw"
 
-# Gömülü AppImage kütüphanelerini tanıt
 if [ -d "$APP_DIR/usr/lib" ]; then
     export LD_LIBRARY_PATH="$APP_DIR/usr/lib:$APP_DIR/usr/lib64:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
@@ -27,7 +58,6 @@ if [ -d "$APP_DIR/apprun-hooks" ]; then
     done
 fi
 
-# Çalıştırıcı ikiliyi sırasıyla dene
 if [ -x "$APP_DIR/AppRun" ]; then
     exec "$APP_DIR/AppRun" "$@"
 elif [ -x "$APP_DIR/AppRun.wrapped" ]; then
@@ -41,7 +71,6 @@ elif [ -x "$APP_DIR/OpenClaw" ]; then
 elif [ -x "$APP_DIR/openclaw" ]; then
     exec "$APP_DIR/openclaw" "$@"
 else
-    # Son çare: /opt/openclaw altındaki ilk çalıştırılabilir ana ikiliyi bul
     EXEC_BIN=$(find "$APP_DIR" -maxdepth 3 -type f -executable ! -name "*.so*" ! -name "*.sh" | head -n 1)
     if [ -n "$EXEC_BIN" ]; then
         exec "$EXEC_BIN" "$@"
@@ -52,7 +81,7 @@ fi
 EOF
 chmod +x %{buildroot}%{_bindir}/%{name}
 
-# Masaüstü kısayolu
+# Masaüstü dosyası kurulumu
 mkdir -p %{buildroot}%{_datadir}/applications
 cat << 'EOF' > %{buildroot}%{_datadir}/applications/%{name}.desktop
 [Desktop Entry]
@@ -87,3 +116,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+
+%changelog
+* Mon Oct 05 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-1
+- Automatic packaging from upstream release.
