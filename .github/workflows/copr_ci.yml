@@ -191,7 +191,6 @@ jobs:
           SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
           echo "Oluşturulan SRPM: $SRPM_FILE"
 
-          copr-cli --config /root/.config/copr build --nowait "universish/OpenClaw.." "$SRPM_FILE"
           copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
           
       - name: Sürümü Güncelle ve Değişiklikleri Kaydet
