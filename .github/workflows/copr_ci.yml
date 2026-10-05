@@ -105,6 +105,15 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "skip=false" >> $GITHUB_OUTPUT
 
+      - name: Copr Kimlik Bilgilerini Yapılandır
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+        run: |
+          mkdir -p "$HOME/.config" /root/.config
+          echo "$COPR_CONFIG" > "$HOME/.config/copr"
+          echo "$COPR_CONFIG" > /root/.config/copr
+          chmod 600 "$HOME/.config/copr" /root/.config/copr 2>/dev/null || true
+          
       - name: Paketi Çıkar, Demetle ve Arşivle
         if: steps.check.outputs.skip == 'false'
         run: |
