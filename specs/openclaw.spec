@@ -98,5 +98,5 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/512x512/apps/%{name}.png
 
 %changelog
-* Sun Oct 04 2026 Saffet Yavuz <universish> - %{version}-1
+* Mon Oct 05 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-1
 - Automatic packaging from upstream release.
