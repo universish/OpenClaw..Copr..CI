@@ -75,34 +75,33 @@ jobs:
             exit 0
           fi
 
-          # 1. Tercih: .deb
-          DEB_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test(".*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
-          # 2. Tercih: .AppImage
+          # 1. Öncelik: .AppImage (Asıl GUI uygulaması buradadır)
           APPIMAGE_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test(".*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
+          # 2. Öncelik: .deb (Yalnızca AppImage yoksa)
+          DEB_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test(".*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
 
-          if [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
-            echo "Paket tipi: .deb bulundu -> $DEB_URL"
-            echo "download_url=$DEB_URL" >> $GITHUB_OUTPUT
-            echo "pkg_type=deb" >> $GITHUB_OUTPUT
-          elif [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
+          if [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
             echo "Paket tipi: .AppImage bulundu -> $APPIMAGE_URL"
             echo "download_url=$APPIMAGE_URL" >> $GITHUB_OUTPUT
             echo "pkg_type=appimage" >> $GITHUB_OUTPUT
+          elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
+            echo "Paket tipi: .deb bulundu -> $DEB_URL"
+            echo "download_url=$DEB_URL" >> $GITHUB_OUTPUT
+            echo "pkg_type=deb" >> $GITHUB_OUTPUT
           else
-            # 3. Tercih: npm registry
-            echo "GitHub üzerinde .deb veya .AppImage yok. npm kayıt defteri kontrol ediliyor..."
+            echo "GitHub üzerinde prebuilt bulunamadı. npm kontrol ediliyor..."
             NPM_VER=$(npm view "openclaw@${VERSION}" version 2>/dev/null || npm view openclaw version 2>/dev/null || true)
             if [ -n "$NPM_VER" ]; then
               echo "Paket tipi: npm bulundu -> openclaw@$NPM_VER"
               echo "pkg_type=npm" >> $GITHUB_OUTPUT
               VERSION="$NPM_VER"
             else
-              echo "HATA: Ne prebuilt dosya ne de npm paketi bulunamadı."
+              echo "HATA: Hiçbir paket bulunamadı."
               echo "skip=true" >> $GITHUB_OUTPUT
               exit 0
             fi
           fi
-
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "skip=false" >> $GITHUB_OUTPUT
 
@@ -152,12 +151,11 @@ jobs:
             curl -fsSL -o package.AppImage "$URL"
             7z x package.AppImage -o../app_extracted/ > /dev/null || unsquashfs -d ../app_extracted package.AppImage
             cd ../app_extracted
+            rm -f AppRun .DirIcon 2>/dev/null || true
             cp -a * ../bundle/app/
             
-            if [ ! -f ../bundle/app/openclaw ]; then
-              MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -iname "openclaw" | head -n 1)
-              [ -n "$MAIN_BIN" ] && cp -a "$MAIN_BIN" ../bundle/app/openclaw
-            fi
+            MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -iname "openclaw" | head -n 1)
+            [ -n "$MAIN_BIN" ] && chmod +x "$MAIN_BIN" || true
 
             ICON_SRC=$(find . -maxdepth 1 -name "*.png" | head -n 1 || true)
             [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png || true
