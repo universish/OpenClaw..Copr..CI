@@ -149,11 +149,18 @@ jobs:
           elif [ "$PKG_TYPE" = "appimage" ]; then
             echo ".AppImage paketi açılıyor: $URL"
             curl -fsSL -o package.AppImage "$URL"
-            7z x package.AppImage -o../app_extracted/ > /dev/null || unsquashfs -d ../app_extracted package.AppImage
+            
+            # Doğrudan unsquashfs ile sembolik bağları ve izinleri koruyarak aç
+            unsquashfs -d ../app_extracted package.AppImage || 7z x package.AppImage -o../app_extracted/ > /dev/null
             cd ../app_extracted
-            rm -f AppRun .DirIcon 2>/dev/null || true
+            
+            # Sadece gereksiz .DirIcon kaldırılır, AppRun korunur
+            rm -f .DirIcon 2>/dev/null || true
             cp -a * ../bundle/app/
             
+            # İkili dosyaların çalıştırma izinlerini ver
+            find ../bundle/app/ -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
+                        
             MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -iname "openclaw" | head -n 1)
             [ -n "$MAIN_BIN" ] && chmod +x "$MAIN_BIN" || true
 
