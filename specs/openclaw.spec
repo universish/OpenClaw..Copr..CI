@@ -1,37 +1,3 @@
-%global debug_package %{nil}
-%global __strip /bin/true
-%global __brp_mangle_shebangs /bin/true
-%global __provides_exclude_from ^/opt/%{name}/.*$
-%global __requires_exclude_from ^/opt/%{name}/.*$
-%global _build_id_links none
-
-Name:           openclaw
-Version:        %{_version}
-Release:        1%{?dist}
-Summary:        All your chats, one OpenClaw - AI Assistant and Gateway
-License:        Proprietary
-URL:            https://openclaw.ai
-ExclusiveArch:  x86_64
-
-# Yalnızca tek kaynak (tarball) yeterlidir; desktop içeriği aşağıda üretilir
-Source0:        openclaw-%{version}-x86_64.tar.gz
-
-BuildRequires:  desktop-file-utils
-
-Requires:       nodejs >= 1:24.16.0
-Requires:       hicolor-icon-theme
-Requires:       xdg-utils
-
-%description
-OpenClaw is a personal AI assistant and communication gateway.
-This package repackages the upstream prebuilt distribution into a native Fedora RPM.
-
-%prep
-%autosetup -n openclaw-%{version}-x86_64
-
-%build
-# Prebuilt binary / npm bundle - derleme adımı gerekmez.
-
 %install
 rm -rf %{buildroot}
 
@@ -39,34 +5,56 @@ rm -rf %{buildroot}
 mkdir -p %{buildroot}/opt/%{name}
 cp -a app/* %{buildroot}/opt/%{name}/
 
-# Çalıştırılabilir ikili dosya ve sembolik bağ
+# Çalıştırılabilir dosyaların izinlerini güvenceye al
+chmod -R a+rX %{buildroot}/opt/%{name}
+find %{buildroot}/opt/%{name} -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
+
+# /usr/bin/openclaw için kararlı başlatıcı betik
 mkdir -p %{buildroot}%{_bindir}
-if [ -f %{buildroot}/opt/%{name}/bin/%{name} ]; then
-    chmod +x %{buildroot}/opt/%{name}/bin/%{name}
-    ln -sf /opt/%{name}/bin/%{name} %{buildroot}%{_bindir}/%{name}
-else
-    chmod +x %{buildroot}/opt/%{name}/%{name} 2>/dev/null || true
-    ln -sf /opt/%{name}/%{name} %{buildroot}%{_bindir}/%{name}
+cat << 'EOF' > %{buildroot}%{_bindir}/%{name}
+#!/usr/bin/env bash
+set -e
+
+APP_DIR="/opt/openclaw"
+
+# Gömülü AppImage kütüphanelerini tanıt
+if [ -d "$APP_DIR/usr/lib" ]; then
+    export LD_LIBRARY_PATH="$APP_DIR/usr/lib:$APP_DIR/usr/lib64:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+if [ -d "$APP_DIR/apprun-hooks" ]; then
+    for hook in "$APP_DIR"/apprun-hooks/*; do
+        [ -r "$hook" ] && . "$hook" 2>/dev/null || true
+    done
 fi
 
-# Desktop dosyası kurulumu
+# Çalıştırıcı ikiliyi sırasıyla dene
+if [ -x "$APP_DIR/AppRun" ]; then
+    exec "$APP_DIR/AppRun" "$@"
+elif [ -x "$APP_DIR/AppRun.wrapped" ]; then
+    exec "$APP_DIR/AppRun.wrapped" "$@"
+elif [ -x "$APP_DIR/usr/bin/openclaw" ]; then
+    exec "$APP_DIR/usr/bin/openclaw" "$@"
+elif [ -x "$APP_DIR/usr/bin/OpenClaw" ]; then
+    exec "$APP_DIR/usr/bin/OpenClaw" "$@"
+elif [ -x "$APP_DIR/OpenClaw" ]; then
+    exec "$APP_DIR/OpenClaw" "$@"
+elif [ -x "$APP_DIR/openclaw" ]; then
+    exec "$APP_DIR/openclaw" "$@"
+else
+    # Son çare: /opt/openclaw altındaki ilk çalıştırılabilir ana ikiliyi bul
+    EXEC_BIN=$(find "$APP_DIR" -maxdepth 3 -type f -executable ! -name "*.so*" ! -name "*.sh" | head -n 1)
+    if [ -n "$EXEC_BIN" ]; then
+        exec "$EXEC_BIN" "$@"
+    fi
+    echo "Hata: /opt/openclaw altında çalıştırılabilir OpenClaw ikilisi bulunamadı." >&2
+    exit 1
+fi
+EOF
+chmod +x %{buildroot}%{_bindir}/%{name}
+
+# Masaüstü kısayolu
 mkdir -p %{buildroot}%{_datadir}/applications
-
-DESKTOP_SRC=""
-if [ -f app/%{name}.desktop ]; then
-    DESKTOP_SRC="app/%{name}.desktop"
-elif [ -f app/OpenClaw.desktop ]; then
-    DESKTOP_SRC="app/OpenClaw.desktop"
-fi
-
-if [ -n "$DESKTOP_SRC" ]; then
-    # Upstream dosyasını kur ve Exec satırına Wayland/NVIDIA bayraklarını yerleştir
-    install -m 0644 "$DESKTOP_SRC" %{buildroot}%{_datadir}/applications/%{name}.desktop
-    sed -i 's|^Exec=.*|Exec=/usr/bin/openclaw --ozone-platform-hint=auto --disable-features=Vulkan --enable-features=WaylandWindowDecorations %U|' \
-        %{buildroot}%{_datadir}/applications/%{name}.desktop
-else
-    # Dosya yoksa (örneğin npm paketinde) sıfırdan oluştur
-    cat << 'EOF' > %{buildroot}%{_datadir}/applications/%{name}.desktop
+cat << 'EOF' > %{buildroot}%{_datadir}/applications/%{name}.desktop
 [Desktop Entry]
 Name=OpenClaw
 Comment=All your chats, one OpenClaw - AI Assistant and Gateway
@@ -75,17 +63,20 @@ Exec=/usr/bin/openclaw --ozone-platform-hint=auto --disable-features=Vulkan --en
 Icon=openclaw
 Type=Application
 StartupNotify=true
-StartupWMClass=openclaw
+StartupWMClass=OpenClaw
 Terminal=false
 Categories=Utility;Network;Chat;
 MimeType=x-scheme-handler/openclaw;
 EOF
-fi
 
-# Uygulama simgesi (Icon)
+# Uygulama simgesi
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
-if [ -f app/%{name}.png ]; then
-    install -m 0644 app/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+if [ -f %{buildroot}/opt/%{name}/openclaw.png ]; then
+    install -m 0644 %{buildroot}/opt/%{name}/openclaw.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+elif [ -f %{buildroot}/opt/%{name}/OpenClaw.png ]; then
+    install -m 0644 %{buildroot}/opt/%{name}/OpenClaw.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+elif [ -f %{buildroot}/opt/%{name}/openclaw-desktop.png ]; then
+    install -m 0644 %{buildroot}/opt/%{name}/openclaw-desktop.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
 fi
 
 %check
@@ -96,7 +87,3 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/512x512/apps/%{name}.png
-
-%changelog
-* Mon Oct 05 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-1
-- Automatic packaging from upstream release.
