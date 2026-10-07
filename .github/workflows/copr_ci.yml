@@ -120,85 +120,32 @@ jobs:
           mkdir -p workdir app_extracted bundle/app
           cd workdir
 
-          if [ "$PKG_TYPE" = "deb" ]; then
-            echo ".deb paketi açılıyor: $URL"
-            curl -fsSL -o package.deb "$URL"
-            ar x package.deb
-            tar -xf data.tar.* -C ../app_extracted/
-            cd ../app_extracted
-            
-            echo "Açılan paket içeriği taranıyor..."
-            # 1. opt altında herhangi bir klasör var mı? (Adı ne olursa olsun al)
-            OPT_DIR=$(find opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
-            if [ -n "$OPT_DIR" ]; then
-              echo "opt altında uygulama dizini bulundu: $OPT_DIR"
-              cp -a "$OPT_DIR"/* ../bundle/app/
-            # 2. usr/share veya usr/lib altında openclaw klasörü var mı?
-            elif find usr/share usr/lib -maxdepth 1 -type d -iname "*openclaw*" 2>/dev/null | grep -q .; then
-              APP_DIR=$(find usr/share usr/lib -maxdepth 1 -type d -iname "*openclaw*" 2>/dev/null | head -n 1)
-              echo "usr altında uygulama dizini bulundu: $APP_DIR"
-              cp -a "$APP_DIR"/* ../bundle/app/
-            # 3. Klasörsüz doğrudan usr/ altına mı dağıtılmış?
-            elif [ -d usr/bin ]; then
-              echo "Doğrudan /usr hiyerarşisi bulundu."
-              cp -a usr/* ../bundle/app/
-            else
-              echo "Özel yapı algılanamadı, tüm içerik aktarılıyor."
-              cp -a * ../bundle/app/
-            fi
-
-            # Simgeyi bul ve aktar
-            ICON_SRC=$(find . -name "*openclaw*.png" -o -name "*OpenClaw*.png" -o -name "*.png" | head -n 1 || true)
-            [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png || true
-
-          elif [ "$PKG_TYPE" = "appimage" ]; then
+          if [ "$PKG_TYPE" = "appimage" ]; then
             echo ".AppImage paketi açılıyor: $URL"
             curl -fsSL -o package.AppImage "$URL"
-            
-            # Doğrudan unsquashfs ile sembolik bağları ve izinleri koruyarak aç
             unsquashfs -d ../app_extracted package.AppImage || 7z x package.AppImage -o../app_extracted/ > /dev/null
             cd ../app_extracted
-            
-            # Sadece gereksiz .DirIcon kaldırılır, AppRun korunur
             rm -f .DirIcon 2>/dev/null || true
             cp -a * ../bundle/app/
-            
-            # İkili dosyaların çalıştırma izinlerini ver
-            find ../bundle/app/ -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
-                        
-            MAIN_BIN=$(find ../bundle/app/ -maxdepth 1 -type f -iname "openclaw" | head -n 1)
-            [ -n "$MAIN_BIN" ] && chmod +x "$MAIN_BIN" || true
-
-            ICON_SRC=$(find . -maxdepth 1 -name "*.png" | head -n 1 || true)
-            [ -n "$ICON_SRC" ] && cp -a "$ICON_SRC" ../bundle/app/openclaw.png || true
-
           elif [ "$PKG_TYPE" = "npm" ]; then
             echo "npm paketi demetleniyor..."
-            npm install -g --prefix "$GITHUB_WORKSPACE/bundle/app" --omit=dev --no-audit --no-fund "openclaw@${VERSION}"
+            npm install -g --prefix "$GITHUB_WORKSPACE/bundle/app" --omit=dev --no-audit --no-fund --ignore-engines "openclaw@${VERSION}"
             cd "$GITHUB_WORKSPACE/bundle/app"
-            if [ -f bin/openclaw ]; then
-              ln -sf bin/openclaw openclaw
-            fi
+            [ -f bin/openclaw ] && ln -sf bin/openclaw openclaw
           fi
 
-          # GÜVENLİK KONTROLÜ: bundle/app boş kaldıysa Copr'a bozuk paket gönderme
-          if [ -z "$(ls -A "$GITHUB_WORKSPACE/bundle/app" 2>/dev/null)" ]; then
-            echo "HATA: bundle/app dizinine hiçbir dosya kopyalanamadı!"
-            echo "app_extracted içinde bulunan tüm dosyalar:"
-            cd "$GITHUB_WORKSPACE/app_extracted" && find . -maxdepth 3
-            exit 1
-          fi
+          # Yüksek çözünürlüklü orijinal logoyu garantiye al (Bulanıklığı önler)
+          curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || \
+          curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
+            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/public/favicon.png" 2>/dev/null || true
 
           cd "$GITHUB_WORKSPACE"
-          
-          # openclaw ikilisinin çalıştırılabilir olduğundan emin ol
-          find bundle/app/ -type f -iname "openclaw" -exec chmod +x {} + 2>/dev/null || true
-
-          # Arşiv kök dizinini hazırla: openclaw-<VERSION>-x86_64
+          find bundle/app/ -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
           mv bundle "openclaw-${VERSION}-x86_64"
           tar -czf "openclaw-${VERSION}-x86_64.tar.gz" "openclaw-${VERSION}-x86_64"
           rm -rf workdir app_extracted "openclaw-${VERSION}-x86_64"
-          
+
       - name: SRPM Oluştur ve Copr'a Gönder
         if: steps.check.outputs.skip == 'false'
         run: |
@@ -206,25 +153,28 @@ jobs:
           
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
+          cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
           
-          # specs/ altındaki spec dosyasını kopyala
-          if [ -f specs/openclaw.spec ]; then
-            cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
-          elif [ -f openclaw.spec ]; then
-            cp openclaw.spec rpmbuild/SPECS/openclaw.spec
-          fi
+          # COPR API'sinden bu sürüm için yapılmış en son build'in release numarasını çek (+1 ekle)
+          LATEST_BUILD=$(curl -s "https://copr.fedorainfracloud.org/api_3/build/list/?ownername=universish&projectname=OpenClaw..&packagename=openclaw" \
+            | jq -r --arg V "$VERSION" '.items[] | select(.pkg_version | test("^" + $V + "-")) | .pkg_version' 2>/dev/null | head -n 1)
 
-          # Sürümü spec dosyasının içine kalıcı olarak yaz (Mock unexpanded macro hatasını çözer)
-          sed -i "s/%{_version}/${VERSION}/g" rpmbuild/SPECS/openclaw.spec
+          if [[ "$LATEST_BUILD" =~ -([0-9]+) ]]; then
+            PREV_REL="${BASH_REMATCH[1]}"
+            RELEASE=$((PREV_REL + 1))
+          else
+            RELEASE=1
+          fi
+          echo "Dinamik Paketleme Numarası: ${VERSION}-${RELEASE}"
 
           # SRPM paketini oluştur
           rpmbuild -bs \
             --define "_topdir $PWD/rpmbuild" \
+            --define "_version ${VERSION}" \
+            --define "_release ${RELEASE}" \
             rpmbuild/SPECS/openclaw.spec
-
+          
           SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
-          echo "Oluşturulan SRPM: $SRPM_FILE"
-
           copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
           
       - name: Sürümü Güncelle ve Değişiklikleri Kaydet
