@@ -1,121 +1,76 @@
-# OpenClaw Copr Packaging CI (`OpenClaw..Copr..CI`)
+<div align="center">
+  <img src="https://upload.wikimedia.org/wikipedia/commons/3/3f/Fedora_logo.svg" alt="Fedora Logo" width="100"/>
+  <h1>OpenClaw Copr Packaging CI</h1>
+  <p>
+    <a href="https://copr.fedorainfracloud.org/coprs/universish/OpenClaw../"><img src="https://img.shields.io/badge/Copr-universish%2FOpenClaw..-blue?logo=fedora&style=for-the-badge" alt="Copr Build"></a>
+    <img src="https://img.shields.io/badge/Platform-Fedora_Linux-51A2DA?logo=fedora&style=for-the-badge" alt="Platform">
+    <img src="https://img.shields.io/badge/Arch-x86__64-brightgreen?style=for-the-badge" alt="Arch">
+    <a href="https://github.com/universish/OpenClaw..Copr..CI/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License"></a>
+  </p>
+  <p><em>Automated enterprise-grade continuous integration pipeline for native RPM packaging.</em></p>
+</div>
 
-Automated continuous integration pipeline to repackage upstream [OpenClaw](https://github.com/openclaw/openclaw) prebuilt `.deb` and `.AppImage` releases into native RPM packages for Fedora Linux, built and hosted on [Fedora Copr](https://copr.fedorainfracloud.org/coprs/universish/OpenClaw../).
+<hr>
 
-## Packaging compliance
-
-This package is distributed via COPR only. It rewraps the upstream prebuilt binary (`.deb` prioritized, `.AppImage` fallback), so it is **not eligible for the official Fedora repositories**: the Fedora Packaging Guidelines require all binaries to be built from source in the Fedora build system, and this repo intentionally ships the upstream prebuilt blob as-is (see `openclaw.spec`).
-
-Everything else follows the guidelines:
-
-- `ExclusiveArch: x86_64` — matches the tested upstream prebuilt Linux artifact.
-- `%build` present (empty — nothing to compile) so rpm's build hooks run properly.
-- `rpmlint` passes in CI with **0 errors, 0 warnings**: every flagged pattern is inherent to rewrapping the prebuilt Node/Electron blob (the `/opt` layout, required `$ORIGIN` runpaths, bare SONAMEs on private libraries, unstripped prebuilt binaries, GUI app without man page, docs not bundled by design) and is explicitly handled in `rpmlintrc`.
-- Standard Fedora macros (`%{_bindir}`, `%{_datadir}`) are strictly used in `%files`.
-- `%global debug_package %{nil}` with an explicit rationale: the prebuilt foreign binary cannot produce debuginfo, so debug packages are meaningless for a rewrap.
-- The bundled libraries under `/opt/openclaw` carry bare SONAMEs. To prevent internal private libraries from leaking into the system package dependency graph, `%__provides_exclude_from` and `%__requires_exclude_from` strictly isolate `/opt/openclaw`.
-- Minimal, documented transformations:
-  - If a `.deb` package is provided upstream, payload contents are extracted directly from `data.tar.*` via `ar`.
-  - If only `.AppImage` is published, squashfs layers are extracted directly without requiring runtime FUSE mounts.
-  - The symlink `/usr/bin/openclaw -> /opt/openclaw/openclaw` is declared directly in `%install`, so RPM owns it natively without requiring unverified post-install scriptlets.
-- Dependencies: explicitly lists runtime integration packages (`hicolor-icon-theme`, `xdg-utils`) that `rpmbuild`'s internal dependency generator cannot detect from prebuilt binary headers.
-
----
-
-## Overview
+## 🚀 Overview
 
 [OpenClaw](https://openclaw.ai) is an all-in-one personal AI assistant and communication gateway. Upstream distributes its primary CLI via npm (which strictly enforces Node.js 24.16+/26.1+ LTS runtime gates and WAL-safe SQLite capabilities) and occasionally publishes pre-compiled Linux desktop artifacts as standalone `.deb` and `.AppImage` packages (`OpenClaw-<yyyy.mm.dd>-amd64`).
 
-Building Node.js/Electron desktop applications directly from source inside isolated build environments like Fedora Mock or Copr is frequently hindered by offline network boundaries, Node.js version constraints, and complex pnpm workspace toolchains. This repository resolves that issue by implementing an automated **deb/AppImage-to-RPM repackaging pipeline**:
+Building Node.js/Electron desktop applications directly from source inside isolated build environments like Fedora Mock or Copr is frequently hindered by offline network boundaries, Node.js version constraints, and complex `pnpm` workspace toolchains. 
 
-* Monitors upstream GitHub releases for prebuilt Linux distribution artifacts.
-* **Smart Package Selection**: Prioritizes `.deb` packages when available due to cleaner filesystem payload extraction; seamlessly falls back to unpacking `.AppImage` bundles (without requiring FUSE).
-* Bypasses source-only and npm-only tags to keep this repository strictly focused on binary repackaging rather than source compilation.
-* Sanitizes and normalizes payloads into a standardized architecture-specific source tarball (`openclaw-<VERSION>-x86_64.tar.gz`).
-* Generates a clean Source RPM (`.src.rpm`).
-* Dispatches automated build tasks to the `universish/OpenClaw..` Copr repository across active Fedora chroots.
+This repository resolves that issue by implementing an automated **Deb/AppImage/NPM-to-RPM repackaging pipeline** that monitors upstream GitHub releases, bypasses source-only tags, prioritizes the correct binary artifacts, and dispatches automated build tasks to the `universish/OpenClaw..` Copr repository across active Fedora chroots.
 
 ---
 
-## Repository Structure
+## 🏗️ Decoupled Architecture
+
+OpenClaw operates with a split client-server model: a background Node.js gateway/CLI and an Electron-based desktop GUI. Because upstream publishes these components at different cadences, this repository implements a **Multi-Package Architecture** to prevent RPM file conflicts and ensure granular updates:
+
+*   📦 **`openclaw-desktop`**: Contains only the Electron GUI. Tracks upstream `.AppImage` or `.deb` releases. Installed isolated into `/opt/openclaw-desktop`.
+*   📦 **`openclaw-cli`**: Contains the core gateway daemon, TUI, and CLI commands. Tracks upstream `npm` or `tarball` releases. Installed isolated into `/opt/openclaw-cli`.
+*   📦 **`openclaw`**: A structural meta-package that requires both of the above, providing a seamless "install everything" experience.
+
+Intelligent bash wrappers (`/usr/bin/openclaw`, `/usr/bin/openclaw-desktop`, `/usr/bin/openclaw-cli`) handle routing, ensuring users are dropped into the desktop app if available, or the TUI/CLI fallback if operating in a headless environment.
+
+---
+
+## 🛡️ Packaging Compliance
+
+This package is distributed via COPR only. It rewraps the upstream prebuilt binaries, so it is **not eligible for the official Fedora repositories**: the Fedora Packaging Guidelines require all binaries to be built from source in the Fedora build system, and this repo intentionally ships the upstream prebuilt blob as-is.
+
+Everything else follows the guidelines stringently:
+
+*   **`ExclusiveArch: x86_64`** — Matches the tested upstream prebuilt Linux artifact.
+*   **Zero-Warning Policy** — `rpmlint` passes in CI with **0 errors, 0 warnings**. Every flagged pattern inherent to rewrapping a prebuilt Node/Electron blob (the `/opt` layout, required `$ORIGIN` runpaths, bare SONAMEs on private libraries, unstripped binaries, missing man pages) is explicitly handled in `rpmlintrc.txt`.
+*   **Debuginfo Suppression** — `%global debug_package %{nil}` is defined with an explicit rationale: the prebuilt foreign binary cannot produce debuginfo, and attempting to strip it corrupts Electron/Node bindings.
+*   **Dependency Isolation** — The bundled libraries under `/opt/openclaw-*` carry bare SONAMEs. To prevent these from leaking into the system package dependency graph, `%__provides_exclude_from` and `%__requires_exclude_from` strictly isolate these directories.
+*   **Minimal, Documented Transformations**:
+    *   If a `.deb` package is provided upstream, payload contents are extracted directly from `data.tar.*` via `ar`.
+    *   If an `.AppImage` is targeted, the squashfs layer is extracted via `--appimage-extract`, eliminating runtime FUSE mount dependencies during CI builds.
+*   **Native Integration** — Symlinks (`/usr/bin/openclaw`) and desktop integrations (hicolor icons, `.desktop` files) are declared directly in `%install`, so RPM owns them natively without requiring unverified post-install scriptlets.
+*   **System Dependencies** — Explicitly lists runtime integration packages (`hicolor-icon-theme`, `xdg-utils`) that `rpmbuild`'s internal dependency generator cannot detect from prebuilt binary headers.
+
+---
+
+## 📂 Repository Structure
 
 ```text
 .
 ├── .github/
 │   └── workflows/
-│       └── copr-ci.yml        # Automated release detector, extractor, and Copr trigger
-├── openclaw.spec              # RPM packaging specification
-├── latest-version.txt         # State tracker for the last processed upstream release
+│       └── copr_ci.yml          # Dual-track release detector and Copr build trigger
+├── specs/
+│   ├── openclaw-desktop.spec    # RPM spec for the Electron GUI client
+│   ├── openclaw-cli.spec        # RPM spec for the TUI, CLI, and Gateway daemon
+│   └── openclaw.spec            # RPM meta-package router
+├── rpmlintrc.txt                # Audit suppression for prebuilt blob constraints
 └── README.md
 
 ```
 
 ---
 
-## Component Deep Dive
-
-### 1. GitHub Actions Workflow (`.github/workflows/copr-ci.yml`)
-
-The workflow runs on a scheduled cron trigger (every 6 hours) and supports manual triggering (`workflow_dispatch`) with an optional `force_version` input.
-
-#### Operational Sequence:
-
-1. **Upstream Release Resolution**: Queries the GitHub REST API for `openclaw/openclaw` releases, strips any leading `v` prefixes, and determines the latest release tag (e.g., `2026.9.5`).
-2. **Prioritized Asset Detection**:
-* **Primary Target (`.deb`)**: Searches for assets matching `OpenClaw-.*-amd64\.deb`. If found, selects this path as the preferred repackaging format.
-* **Fallback Target (`.AppImage`)**: If no `.deb` is published, searches for `OpenClaw-.*-amd64\.AppImage`.
-* **Source/NPM Bypass**: If neither prebuilt format exists, the workflow gracefully skips the run, ensuring no broken compilations are attempted.
-
-
-3. **Payload Extraction & Normalization**:
-* **For `.deb**`: Unpacks using `ar` and extracts the underlying `data.tar.*` archive directly.
-* **For `.AppImage**`: Extracts the squashfs layer directly using `7z` / `unsquashfs`, eliminating runtime FUSE dependencies inside GitHub Actions runner containers.
-* Identifies and standardizes application payloads into `/opt/openclaw`, alongside `.desktop` launcher shortcuts and high-resolution icons.
-
-
-4. **Isolated SRPM Generation**: Compresses sanitized payloads into `openclaw-<VERSION>-x86_64.tar.gz` and runs `rpmbuild -bs` using `openclaw.spec` to output a clean, verifiable `.src.rpm`.
-5. **Copr Dispatch (`copr-cli`)**: Injects credentials from the `COPR_CONFIG` secret into `~/.config/copr` and triggers non-blocking builds (`copr-cli build --nowait`) targeting the `universish/OpenClaw..` project chroots (e.g., `fedora-41-x86_64`, `fedora-42-x86_64`, `fedora-rawhide-x86_64`).
-
----
-
-### 2. RPM Specification (`openclaw.spec`)
-
-The RPM spec file handles binary payload placement, library conflict prevention, and desktop integration.
-
-#### Key Architectural Highlights:
-
-* **Binary Integrity Preservation**:
-```spec
-%global debug_package %{nil}
-%global __strip /bin/true
-%global _build_id_links none
-
-```
-
-
-Disables standard RPM build-root stripping and debuginfo extraction routines. Prebuilt Electron and Node ELF binaries contain internal symbols and bundled bindings that can fail or become corrupted if altered by standard stripping macros.
-* **Dependency Isolation & Symbol Filtering**:
-```spec
-%global __provides_exclude_from ^/opt/%{name}/.*$
-%global __requires_exclude_from ^/opt/%{name}/.*$
-
-```
-
-
-Prevents `rpmbuild`'s internal dependency generator from exposing internal bundled Node/Electron libraries as system-wide RPM provides or creating conflicting shared object requirements.
-* **FHS Compliance & System Integration**:
-* Installs the application payload into `/opt/openclaw/`.
-* Creates a standard PATH symlink: `/usr/bin/openclaw -> /opt/openclaw/openclaw`.
-* Installs and registers the desktop launcher under `/usr/share/applications/openclaw.desktop`.
-* Places application icons into the standard hicolor icon theme directory (`/usr/share/icons/hicolor/512x512/apps/openclaw.png`).
-
-
-
----
-
-## Configuration & Deployment
-
-### 1. Copr Project Settings
+## ⚙️ Configuration & Deployment
 
 Ensure the destination project exists on Fedora Copr:
 
@@ -124,25 +79,189 @@ Ensure the destination project exists on Fedora Copr:
 
 ---
 
-## Installation Instructions (Client-Side)
+## 📦 Installation & Setup
 
-To install OpenClaw on Fedora using the Copr repository:
+**1. Enable the Copr Repository**
+Register the official Copr repository with your DNF package manager:
 
 ```bash
-# 1. Enable the Copr repository
 sudo dnf copr enable universish/OpenClaw..
 
 ```
+
+**2. Choose Your Installation Method**
+Thanks to the modular architecture, you can install the complete suite or strictly the components you need for your environment.
+
+* **Full Installation (Desktop GUI + CLI/TUI & Gateway Engine):**
 ```bash
-# 2. Install OpenClaw
 sudo dnf install openclaw
 
 ```
+
+* **CLI / TUI Only (Headless, Terminal, or Server usage):**
 ```bash
-# 3. Launch from terminal or application launcher
+sudo dnf install openclaw-cli
+
+```
+
+* **Desktop GUI Only (Connects to an existing local or remote gateway):**
+```bash
+sudo dnf install openclaw-desktop
+
+```
+
+---
+
+## 🔄 Updates & Maintenance
+
+**Refresh Repository Cache and Upgrade All System Packages:**
+
+```bash
+sudo dnf upgrade --refresh
+
+```
+
+**Upgrade Only OpenClaw Packages:**
+
+```bash
+sudo dnf upgrade openclaw openclaw-cli openclaw-desktop
+
+```
+
+**Install or Downgrade to a Specific Version:**
+Because the CLI and Desktop update independently, you can mix and match versions by appending the target release version to the package name:
+
+```bash
+# Example: Pinning specific releases
+sudo dnf install openclaw-desktop-2026.9.5
+sudo dnf install openclaw-cli-2026.10.1
+
+```
+
+---
+
+## 🗑️ Removal & Teardown
+
+**Uninstall Packages:**
+Remove all OpenClaw components from the system:
+
+```bash
+sudo dnf remove openclaw openclaw-cli openclaw-desktop
+
+```
+
+**Disable the Copr Repository:**
+Deactivate the repository to stop receiving updates:
+
+```bash
+sudo dnf copr disable universish/OpenClaw..
+
+```
+
+### **Updating Packages To bypass local metadata caching and immediately pull new builds or packaging revisions** (e.g., <version>-1 to <version>-2):
+
+* **Flush the cache:**
+```
+sudo dnf clean all && sudo dnf makecache
+
+```
+
+* **upgrade --refresh:**
+```
+sudo dnf upgrade --refresh openclaw "openclaw*" "openclaw-*" "openclaw-desktop*" openclaw-desktop "openclaw-cli*" openclaw-cli
+
+```
+### **If that doesn't work, follow these steps:**
+
+* **Flush the cache:**
+```
+sudo dnf clean all && sudo dnf makecache
+
+```
+
+* **Install the thorium (it now comes directly from COPR):**
+```
+sudo dnf install openclaw
+
+```
+
+> ⚠️ **Note**: System modifications using `sudo dnf` are performed at the user's discretion. No liability is assumed for local environment alterations.
+
+---
+
+### Run
+
+* **desktop gui:**
+```
+openclaw-desktop
+
+```
+
+* **Terminal CLI:**
+```
+openclaw-cli
+
+```
+
+See [CLI DOCS](https://docs.openclaw.ai/cli)
+
+* **TUI:**
+```
+openclaw-tui
+
+```
+
+See [TUI DOCS](https://docs.openclaw.ai/cli/tui/) for Other TUI commands
+
+* **WebUI / Dashboard CLI or PWA:**
+```
+openclaw dashboard
+
+```
+
+See [Dashboard DOCS](https://docs.openclaw.ai/cli/dashboard)
+
+* **main command:**
+```
 openclaw
 
 ```
+
+See [OpenClaw DOCS](https://docs.openclaw.ai/)
+
+---
+
+## 💬 Feedback & Issues
+
+This repository is a community-driven packaging pipeline designed to simplify the deployment of OpenClaw on Fedora Linux.
+
+* Report RPM packaging anomalies, repository synchronization failures, or CI/CD issues in this repository's [Issue Tracker](https://www.google.com/search?q=https://github.com/universish/OpenClaw..Copr..CI/issues).
+* For core application bugs, feature requests, and upstream documentation, visit the official [OpenClaw Website](https://openclaw.ai) or the [OpenClaw GitHub Repository](https://github.com/openclaw/openclaw).
+
+---
+
+## 📜 License
+
+* Packaging scripts, CI/CD workflows, and `.spec` files provided in this repository are licensed under the [MIT License](https://github.com/universish/OpenClaw..Copr..CI/blob/main/LICENSE).
+* The underlying OpenClaw application and its prebuilt binaries are governed by upstream licensing terms. The core OpenClaw repository is licensed under the [MIT License](https://github.com/openclaw/openclaw/blob/main/LICENSE).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 > **Note**: Installing with superuser privileges (`sudo`) is at the user's discretion; no responsibility is accepted for local machine modifications.
 
