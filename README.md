@@ -242,7 +242,7 @@ See All Remove Commands [Uninstall DOCS](https://docs.openclaw.ai/install/uninst
 
 ---
 
-**Disable the Copr Repository:**
+### **Disable the Copr Repository:**
 Deactivate the repository to stop receiving updates:
 
 ```bash
