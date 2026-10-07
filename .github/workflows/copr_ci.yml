@@ -141,7 +141,6 @@ jobs:
           mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
           cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
 
-          # Makroları spec dosyasına doğrudan işle (Copr Mock unexpanded macro hatasını engeller)
           sed -i "s/%{_version}/${VERSION}/g" rpmbuild/SPECS/openclaw.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw.spec
 
@@ -152,8 +151,15 @@ jobs:
             rpmbuild/SPECS/openclaw.spec
 
           SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
-          copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
 
+          # copr-cli varlığını garantiye al
+          if ! command -v copr-cli &> /dev/null; then
+            echo "copr-cli bulunamadı, yükleniyor..."
+            sudo pip3 install --break-system-packages copr-cli 2>/dev/null || sudo pip3 install copr-cli
+          fi
+
+          copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
+          
       - name: Gerekli Paketleri Kur
         run: |
           sudo apt-get update
