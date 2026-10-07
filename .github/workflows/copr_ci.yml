@@ -2,113 +2,79 @@ name: Check Update and Build Copr RPM
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Manuel sürüme zorla (örn: 2026.9.8)'
+        description: 'Zorlanacak Sürüm (Örn: 2026.9.5 veya 2026.9.8)'
         required: false
-        default: ''
+        type: string
 
 jobs:
   check-and-build:
     runs-on: ubuntu-latest
-    container:
-      image: fedora:latest
-      options: --user root
-
     steps:
-      - name: Gerekli Araçları ve Node.js Kur
-        run: |
-          dnf install -y \
-            git curl jq rpm-build binutils tar xz zstd p7zip p7zip-plugins squashfs-tools copr-cli nodejs npm desktop-file-utils
-
       - name: Depoyu Klonla
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Copr Kimlik Bilgilerini Yapılandır
-        env:
-          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+      - name: Gerekli Paketleri Kur
         run: |
-          mkdir -p "$HOME/.config" /root/.config
-          echo "$COPR_CONFIG" > "$HOME/.config/copr"
-          echo "$COPR_CONFIG" > /root/.config/copr
-          chmod 600 "$HOME/.config/copr" /root/.config/copr 2>/dev/null || true
-          
-      - name: Sürüm ve Paket Tipini Belirle
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          UPSTREAM_REPO="openclaw/openclaw"
-          AUTH_HEADER="Authorization: Bearer ${GH_TOKEN}"
-          
-          if [ -n "${{ github.event.inputs.force_version }}" ]; then
-            TAG="v${{ github.event.inputs.force_version }}"
-            RELEASE_JSON=$(curl -fsSL -H "$AUTH_HEADER" "https://api.github.com/repos/${UPSTREAM_REPO}/releases/tags/${TAG}" || true)
-          else
-            RELEASE_JSON=$(curl -fsSL -H "$AUTH_HEADER" "https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest" || true)
-            TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name // empty')
-            if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-              RELEASE_JSON=$(curl -fsSL -H "$AUTH_HEADER" "https://api.github.com/repos/${UPSTREAM_REPO}/releases?per_page=1" | jq '.[0]' || true)
-              TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name // empty')
-            fi
-          fi
-
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "Upstream üzerinde geçerli bir release bulunamadı."
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          VERSION="${TAG#v}"
-          echo "Hedef Sürüm: $VERSION"
-
-          LAST_BUILD=""
-          [ -f latest-version.txt ] && LAST_BUILD=$(cat latest-version.txt)
-
-          if [ -z "${{ github.event.inputs.force_version }}" ] && [ "$LAST_BUILD" = "$VERSION" ]; then
-            echo "Bu sürüm ($VERSION) zaten paketlendi. İşlem atlanıyor."
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # 1. Öncelik: .AppImage (Asıl GUI uygulaması buradadır)
-          APPIMAGE_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test(".*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
-          # 2. Öncelik: .deb (Yalnızca AppImage yoksa)
-          DEB_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test(".*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
-
-          if [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
-            echo "Paket tipi: .AppImage bulundu -> $APPIMAGE_URL"
-            echo "download_url=$APPIMAGE_URL" >> $GITHUB_OUTPUT
-            echo "pkg_type=appimage" >> $GITHUB_OUTPUT
-          elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
-            echo "Paket tipi: .deb bulundu -> $DEB_URL"
-            echo "download_url=$DEB_URL" >> $GITHUB_OUTPUT
-            echo "pkg_type=deb" >> $GITHUB_OUTPUT
-          else
-            echo "GitHub üzerinde prebuilt bulunamadı. npm kontrol ediliyor..."
-            NPM_VER=$(npm view "openclaw@${VERSION}" version 2>/dev/null || npm view openclaw version 2>/dev/null || true)
-            if [ -n "$NPM_VER" ]; then
-              echo "Paket tipi: npm bulundu -> openclaw@$NPM_VER"
-              echo "pkg_type=npm" >> $GITHUB_OUTPUT
-              VERSION="$NPM_VER"
-            else
-              echo "HATA: Hiçbir paket bulunamadı."
-              echo "skip=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-          
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "skip=false" >> $GITHUB_OUTPUT
+          sudo apt-get update
+          sudo apt-get install -y jq curl rpm squashfs-tools p7zip-full binutils
 
       - name: Node.js 24 Kurulumu
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Copr CLI Yapılandır
+        run: |
+          mkdir -p ~/.config
+          cat << EOF > ~/.config/copr
+          [copr-cli]
+          login = ${{ secrets.COPR_LOGIN }}
+          username = universish
+          token = ${{ secrets.COPR_TOKEN }}
+          copr_url = https://copr.fedorainfracloud.org
+          EOF
+          chmod 600 ~/.config/copr
+
+      - name: Sürüm ve Varlık Kontrolü
+        id: check
+        run: |
+          FORCE_VER="${{ github.event.inputs.force_version }}"
+          REPO="openclaw/openclaw"
+
+          if [ -n "$FORCE_VER" ]; then
+            RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/v${FORCE_VER}" 2>/dev/null || curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${FORCE_VER}" 2>/dev/null || echo "{}")
+            VERSION="$FORCE_VER"
+          else
+            RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")
+            VERSION=$(echo "$RELEASE_JSON" | jq -r .tag_name | sed 's/^v//')
+          fi
+
+          echo "Hedef Sürüm: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Varlık tespiti (AppImage > Deb > Tarball > npm)
+          APPIMAGE_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
+          DEB_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test(".*(amd64|x86_64).*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
+          TAR_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.tar\\.(gz|xz)$"; "i")) | .browser_download_url' | head -n 1)
+
+          if [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
+            echo "download_url=$APPIMAGE_URL" >> $GITHUB_OUTPUT
+            echo "pkg_type=appimage" >> $GITHUB_OUTPUT
+          elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
+            echo "download_url=$DEB_URL" >> $GITHUB_OUTPUT
+            echo "pkg_type=deb" >> $GITHUB_OUTPUT
+          elif [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
+            echo "download_url=$TAR_URL" >> $GITHUB_OUTPUT
+            echo "pkg_type=tarball" >> $GITHUB_OUTPUT
+          else
+            echo "İkili dosya bulunamadı, npm fallback kullanılacak."
+            echo "pkg_type=npm" >> $GITHUB_OUTPUT
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
 
       - name: Paketi Çıkar, Demetle ve Arşivle
         if: steps.check.outputs.skip == 'false'
@@ -116,30 +82,17 @@ jobs:
           VERSION="${{ steps.check.outputs.version }}"
           PKG_TYPE="${{ steps.check.outputs.pkg_type }}"
           URL="${{ steps.check.outputs.download_url }}"
-          
+
           mkdir -p workdir app_extracted bundle/app
           cd workdir
 
-          # 1. Paket Türüne Göre Ayıklama
           if [ "$PKG_TYPE" = "appimage" ]; then
-            echo ".AppImage paketi açılıyor: $URL"
+            echo ".AppImage açılıyor: $URL"
             curl -fsSL -o package.AppImage "$URL"
             unsquashfs -d ../app_extracted package.AppImage || 7z x package.AppImage -o../app_extracted/ > /dev/null
             cd ../app_extracted
             rm -f .DirIcon 2>/dev/null || true
             cp -a * ../bundle/app/
-          elif [ "$PKG_TYPE" = "tarball" ]; then
-            echo "Portable tarball açılıyor: $URL"
-            curl -fsSL -o package.tar.gz "$URL"
-            mkdir -p ../app_extracted
-            tar -xf package.tar.gz -C ../app_extracted/
-            cd ../app_extracted
-            SUB_DIR=$(find . -mindepth 1 -maxdepth 1 -type d | head -n 1)
-            if [ -n "$SUB_DIR" ] && [ $(find . -mindepth 1 -maxdepth 1 | wc -l) -eq 1 ]; then
-              cp -a "$SUB_DIR"/* ../bundle/app/
-            else
-              cp -a * ../bundle/app/
-            fi
           elif [ "$PKG_TYPE" = "deb" ]; then
             echo ".deb paketi açılıyor: $URL"
             curl -fsSL -o package.deb "$URL"
@@ -148,21 +101,27 @@ jobs:
             cd ../app_extracted
             OPT_DIR=$(find opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
             [ -n "$OPT_DIR" ] && cp -a "$OPT_DIR"/* ../bundle/app/ || cp -a * ../bundle/app/
+          elif [ "$PKG_TYPE" = "tarball" ]; then
+            echo "Tarball açılıyor: $URL"
+            curl -fsSL -o package.tar.gz "$URL"
+            tar -xf package.tar.gz -C ../app_extracted/
+            cd ../app_extracted
+            cp -a * ../bundle/app/
           elif [ "$PKG_TYPE" = "npm" ]; then
-            echo "npm paketi demetleniyor..."
+            echo "npm CLI demetleniyor..."
             npm install -g --prefix "$GITHUB_WORKSPACE/bundle/app" --omit=dev --no-audit --no-fund --ignore-engines "openclaw@${VERSION}"
             cd "$GITHUB_WORKSPACE/bundle/app"
             [ -f bin/openclaw ] && ln -sf bin/openclaw openclaw
           fi
 
-          # 2. HD Simge Güvencesi (Bulanıklığı kökten çözer)
+          # HD Simge Güvencesi (Paket içinde yoksa resmi kaynaklardan indir)
           ICON_FOUND=$(find "$GITHUB_WORKSPACE/bundle/app" -maxdepth 3 -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" \) 2>/dev/null | head -n 1)
           if [ -z "$ICON_FOUND" ]; then
-            echo "Pakette ikon yok, resmi 512x512 HD ikon çekiliyor..."
-            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
-              "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || \
-            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
-              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/public/favicon.png" 2>/dev/null || true
+            echo "Resmi HD simge indiriliyor..."
+            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || \
+            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/public/favicon.png" 2>/dev/null || true
+          else
+            cp -a "$ICON_FOUND" "$GITHUB_WORKSPACE/bundle/app/openclaw.png"
           fi
 
           cd "$GITHUB_WORKSPACE"
@@ -175,45 +134,21 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: |
           VERSION="${{ steps.check.outputs.version }}"
-          
+          RELEASE="${{ github.run_number }}"
+
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
           cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
-          
-          # Copr API üzerinden bu sürüm için en son release numarasını sorgula ve +1 ekle
-          LATEST_REL=$(curl -s "https://copr.fedorainfracloud.org/api_3/build/list/?ownername=universish&projectname=OpenClaw..&packagename=openclaw" \
-            | jq -r --arg V "$VERSION" '[.items[] | select(.pkg_version | startswith($V + "-")) | .pkg_version | capture("-(?<rel>[0-9]+)") | .rel | tonumber] | max // 0' 2>/dev/null || echo 0)
-          
-          RELEASE=$((LATEST_REL + 1))
-          echo "Dinamik Sürüm ve Paketleme Numarası: ${VERSION}-${RELEASE}"
 
-          # Makroları kalıcı olarak spec dosyasına işle (Mock unexpanded macro hatasını kesin çözer)
+          # Makroları spec dosyasına doğrudan işle (Copr Mock unexpanded macro hatasını engeller)
           sed -i "s/%{_version}/${VERSION}/g" rpmbuild/SPECS/openclaw.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw.spec
 
-          # SRPM paketini oluştur
+          echo "Oluşturuluyor: openclaw-${VERSION}-${RELEASE}"
+
           rpmbuild -bs \
             --define "_topdir $PWD/rpmbuild" \
             rpmbuild/SPECS/openclaw.spec
-          
+
           SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
-          echo "Oluşturulan SRPM: $SRPM_FILE"
-          
           copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
-          
-      - name: Sürümü Güncelle ve Değişiklikleri Kaydet
-        if: steps.check.outputs.skip == 'false'
-        run: |
-          VERSION="${{ steps.check.outputs.version }}"
-          echo "$VERSION" > latest-version.txt
-
-          # Konteyner içi dosya sahipliği uyarısını aş
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global --add safe.directory '*'
-
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add latest-version.txt
-          git commit -m "chore: release ${VERSION} build triggered on Copr" || exit 0
-          git push
-          
