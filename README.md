@@ -1,5 +1,26 @@
 <div align="center">
-  <img src="https://upload.wikimedia.org/wikipedia/commons/3/3f/Fedora_logo.svg" alt="Fedora Logo" width="100"/>
+  <table>
+    <tr>
+      <td align="center" valign="middle">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Fedora_icon_%282021%29.svg" alt="Fedora Logo" width="110"/>
+      </td>
+      <td align="left" valign="middle">
+<pre style="color: #FF8C00; font-weight: bold; background: transparent; border: none; font-family: monospace; line-height: 1.2;">
+ •●●:.        .:●●•
+:●●●●:        :●●●●:
+.●●●●:.:•●●•:.:●●●●.
+ .●●●: •●●●●• :●●●. 
+ ..:••●●●●●●●●••:.. 
+.::••••●●●●●●••••::.
+ . .:  •●●●●•  :. .
+    .  :●●●●:  .
+      .●●●●●●.
+       :••••:
+</pre>
+      </td>
+    </tr>
+  </table>
+
   <h1>OpenClaw Copr Packaging CI</h1>
   <p>
     <a href="https://copr.fedorainfracloud.org/coprs/universish/OpenClaw../"><img src="https://img.shields.io/badge/Copr-universish%2FOpenClaw..-blue?logo=fedora&style=for-the-badge" alt="Copr Build"></a>
