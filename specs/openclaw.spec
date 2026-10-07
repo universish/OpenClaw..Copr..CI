@@ -7,7 +7,7 @@
 
 Name:           openclaw
 Version:        %{_version}
-Release:        %{?_release}%{!?_release:1}%{?dist}
+Release:        %{_release}%{?dist}
 Summary:        All your chats, one OpenClaw - AI Assistant and Gateway
 License:        Proprietary
 URL:            https://openclaw.ai
@@ -38,11 +38,30 @@ find %{buildroot}/opt/%{name} -type f \( -name "AppRun*" -o -name "*openclaw*" -
 
 mkdir -p %{buildroot}%{_bindir}
 
-# 1. Masaüstü GUI Başlatıcısı (AppRun varsa Electron GUI, yoksa Web Dashboard açar)
+# 1. Terminal CLI Başlatıcısı (/usr/bin/openclaw)
+cat << 'EOF' > %{buildroot}%{_bindir}/%{name}
+#!/usr/bin/env bash
+if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
+    exec "$HOME/.openclaw/bin/openclaw" "$@"
+elif [ -x /opt/openclaw/bin/openclaw ]; then
+    exec /opt/openclaw/bin/openclaw "$@"
+elif [ -x /opt/openclaw/openclaw ] && [ ! -d /opt/openclaw/openclaw ]; then
+    exec /opt/openclaw/openclaw "$@"
+elif [ -x /opt/openclaw/AppRun ]; then
+    exec /opt/openclaw/AppRun "$@"
+fi
+EOF
+chmod +x %{buildroot}%{_bindir}/%{name}
+
+# 2. Masaüstü Arayüz Başlatıcısı (/usr/bin/openclaw-desktop)
 cat << 'EOF' > %{buildroot}%{_bindir}/%{name}-desktop
 #!/usr/bin/env bash
+# AppImage varsa (2026.9.5) Electron GUI başlat
 if [ -x /opt/openclaw/AppRun ]; then
     exec /opt/openclaw/AppRun "$@"
+elif [ -x /opt/openclaw/OpenClaw ] && [ ! -d /opt/openclaw/OpenClaw ]; then
+    exec /opt/openclaw/OpenClaw "$@"
+# AppImage yoksa (2026.9.8) doğrudan Web Dashboard başlat
 elif [ -x "$HOME/.openclaw/bin/openclaw" ]; then
     exec "$HOME/.openclaw/bin/openclaw" dashboard "$@"
 elif [ -x /opt/openclaw/bin/openclaw ]; then
@@ -52,19 +71,6 @@ else
 fi
 EOF
 chmod +x %{buildroot}%{_bindir}/%{name}-desktop
-
-# 2. Terminal CLI Başlatıcısı
-cat << 'EOF' > %{buildroot}%{_bindir}/%{name}
-#!/usr/bin/env bash
-if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
-    exec "$HOME/.openclaw/bin/openclaw" "$@"
-elif [ -x /opt/openclaw/bin/openclaw ]; then
-    exec /opt/openclaw/bin/openclaw "$@"
-elif [ -x /opt/openclaw/AppRun ]; then
-    exec /opt/openclaw/AppRun "$@"
-fi
-EOF
-chmod +x %{buildroot}%{_bindir}/%{name}
 
 # Masaüstü Kısayolu
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -82,10 +88,18 @@ Terminal=false
 Categories=Utility;Network;Chat;
 EOF
 
-# Uygulama simgesi
+# Uygulama Simgesi (HD Simgeyi hem hicolor hem pixmaps altına koy)
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
-if [ -f %{buildroot}/opt/%{name}/openclaw.png ]; then
-    install -m 0644 %{buildroot}/opt/%{name}/openclaw.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+mkdir -p %{buildroot}%{_datadir}/pixmaps
+
+ICON_SRC=$(find %{buildroot}/opt/%{name} -maxdepth 2 -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" -o -iname "*icon*.png" \) 2>/dev/null | head -n 1)
+
+if [ -n "$ICON_SRC" ]; then
+    install -m 0644 "$ICON_SRC" %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+    install -m 0644 "$ICON_SRC" %{buildroot}%{_datadir}/pixmaps/%{name}.png
+else
+    touch %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+    touch %{buildroot}%{_datadir}/pixmaps/%{name}.png
 fi
 
 %check
@@ -97,6 +111,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %{_bindir}/%{name}-desktop
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+%{_datadir}/pixmaps/%{name}.png
 
 %changelog
 * Wed Oct 07 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
