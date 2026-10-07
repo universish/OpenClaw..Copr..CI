@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Zorlanacak Sürüm (Örn: 2026.9.8)'
+        description: 'Zorlanacak Sürüm (Örn: 2026.9.5)'
         required: false
         type: string
 
@@ -44,21 +44,26 @@ jobs:
           FORCE_VER="${{ github.event.inputs.force_version }}"
           REPO="openclaw/openclaw"
           
+          RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
+          
           if [ -n "$FORCE_VER" ]; then
-            RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
-            LATEST_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
+            DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
+            CLI_RELEASE="$DESKTOP_RELEASE"
             CLI_VERSION="$FORCE_VER"
             DESKTOP_VERSION="$FORCE_VER"
-            DESKTOP_RELEASE="$LATEST_RELEASE"
           else
-            RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
-            # CLI için doğrudan en son sürümü al
-            LATEST_RELEASE=$(echo "$RELEASES_JSON" | jq -c '.[0]')
-            CLI_VERSION=$(echo "$LATEST_RELEASE" | jq -r .tag_name | sed 's/^v//')
-            
-            # Masaüstü için içinde AppImage veya deb barındıran en son sürümü bul
-            DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets[]? | .name | test(".*(linux|x86_64|amd64).*\\.(AppImage|deb)$"; "i"))] | .[0]')
+            # Yalnızca içinde AppImage veya deb varlığı bulunan releases etiketlerini filtrele
+            DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.(AppImage|deb)$"; "i")))] | .[0]')
             DESKTOP_VERSION=$(echo "$DESKTOP_RELEASE" | jq -r .tag_name | sed 's/^v//')
+            
+            # Yalnızca içinde tarball varlığı bulunan releases etiketlerini filtrele (kanıt dosyalarını atlar)
+            CLI_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.tar\\.(gz|xz)$"; "i")))] | .[0]')
+            CLI_VERSION=$(echo "$CLI_RELEASE" | jq -r .tag_name | sed 's/^v//')
+            
+            # Upstream tarball yayınlamadıysa NPM üzerinden CLI sürümünü doğrula
+            if [ "$CLI_VERSION" == "null" ] || [ -z "$CLI_VERSION" ]; then
+                CLI_VERSION=$(npm view openclaw version 2>/dev/null)
+            fi
           fi
 
           echo "CLI Hedef Sürüm: $CLI_VERSION"
@@ -66,32 +71,31 @@ jobs:
           echo "cli_version=$CLI_VERSION" >> $GITHUB_OUTPUT
           echo "desktop_version=$DESKTOP_VERSION" >> $GITHUB_OUTPUT
 
-          # Masaüstü İndirme URL'leri
-          APPIMAGE_URL=$(echo "$DESKTOP_RELEASE" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
-          DEB_URL=$(echo "$DESKTOP_RELEASE" | jq -r '.assets[]? | select(.name | test(".*(amd64|x86_64).*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
-          
-          # CLI İndirme URL'leri
-          TAR_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.tar\\.(gz|xz)$"; "i")) | .browser_download_url' | head -n 1)
+          APPIMAGE_URL=$(echo "$DESKTOP_RELEASE" | jq -r '.assets[]? | select(.name | test("\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
+          DEB_URL=$(echo "$DESKTOP_RELEASE" | jq -r '.assets[]? | select(.name | test("\\.deb$"; "i")) | .browser_download_url' | head -n 1)
+          TAR_URL=$(echo "$CLI_RELEASE" | jq -r '.assets[]? | select(.name | test("\\.tar\\.(gz|xz)$"; "i")) | .browser_download_url' | head -n 1)
 
           # --- 1. DESKTOP HAZIRLIĞI ---
           mkdir -p workdir_desktop bundle_desktop/app
           cd workdir_desktop
           if [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
-            echo "Desktop AppImage indiriliyor..."
+            echo "Desktop AppImage indiriliyor: $APPIMAGE_URL"
             curl -fsSL -o package.AppImage "$APPIMAGE_URL"
-            unsquashfs -d ../app_extracted package.AppImage || 7z x package.AppImage -o../app_extracted/ > /dev/null
-            cp -a ../app_extracted/* ../bundle_desktop/app/
+            chmod +x package.AppImage
+            # Electron AppImage'ları offset içerir. 7z ve unsquashfs yerine yerleşik aracı kullanıyoruz.
+            ./package.AppImage --appimage-extract
+            cp -a squashfs-root/* ../bundle_desktop/app/
           elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
-            echo "Desktop deb indiriliyor..."
+            echo "Desktop deb indiriliyor: $DEB_URL"
             curl -fsSL -o package.deb "$DEB_URL"
             ar x package.deb
-            tar -xf data.tar.* -C ../app_extracted/
+            tar -xf data.tar.* -C ../app_extracted/ 2>/dev/null || tar -xf data.tar.* -C ../app_extracted/
             OPT_DIR=$(find ../app_extracted/opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
             [ -n "$OPT_DIR" ] && cp -a "$OPT_DIR"/* ../bundle_desktop/app/ || cp -a ../app_extracted/* ../bundle_desktop/app/
           fi
           cd ..
           
-          # İkon garantisi (Yalnızca masaüstüne ait)
+          # İkon garantisi
           ICON_FOUND=$(find bundle_desktop/app/ -maxdepth 3 -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" \) 2>/dev/null | head -n 1)
           if [ -z "$ICON_FOUND" ]; then
             curl -fsSL -o bundle_desktop/app/openclaw.png "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || true
@@ -101,13 +105,13 @@ jobs:
           
           mv bundle_desktop "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
           tar -czf "openclaw-desktop-${DESKTOP_VERSION}-x86_64.tar.gz" "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
-          rm -rf workdir_desktop app_extracted "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
+          rm -rf workdir_desktop "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
 
           # --- 2. CLI HAZIRLIĞI ---
           mkdir -p workdir_cli bundle_cli/app
           cd workdir_cli
           if [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
-            echo "CLI Tarball indiriliyor..."
+            echo "CLI Tarball indiriliyor: $TAR_URL"
             curl -fsSL -o package.tar.gz "$TAR_URL"
             tar -xf package.tar.gz -C ../bundle_cli/app/ --strip-components=1 2>/dev/null || tar -xf package.tar.gz -C ../bundle_cli/app/
           else
@@ -130,11 +134,9 @@ jobs:
 
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           
-          # Kaynak arşivleri yerine koy
           mv openclaw-desktop-${DESK_VER}-x86_64.tar.gz rpmbuild/SOURCES/
           mv openclaw-cli-${CLI_VER}-x86_64.tar.gz rpmbuild/SOURCES/
           
-          # 3 ayrı Spec'i kopyala ve sürüm verilerini dinamik olarak işle
           cp specs/openclaw-desktop.spec rpmbuild/SPECS/
           cp specs/openclaw-cli.spec rpmbuild/SPECS/
           cp specs/openclaw.spec rpmbuild/SPECS/
@@ -148,10 +150,8 @@ jobs:
           sed -i "s/%{_version}/${CLI_VER}/g" rpmbuild/SPECS/openclaw.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw.spec
 
-          # 3 SRPM derle
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-desktop.spec
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-cli.spec
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw.spec
 
-          # Aynı anda Copr'a gönder. (Copr hepsini eşzamanlı sıraya alacaktır).
           copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." rpmbuild/SRPMS/*.src.rpm
