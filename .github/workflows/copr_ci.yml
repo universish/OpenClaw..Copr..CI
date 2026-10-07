@@ -17,28 +17,28 @@ jobs:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
 
+      - name: Node.js 24 Kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Gerekli Paketleri Kur
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl rpm squashfs-tools p7zip-full binutils python3-pip
           sudo pip3 install --break-system-packages copr-cli 2>/dev/null || sudo pip3 install copr-cli
 
-      - name: Node.js 24 Kurulumu
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - name: Copr CLI Yapılandır
         run: |
           mkdir -p ~/.config
-          cat << EOF > ~/.config/copr
-          [copr-cli]
-          login = ${{ secrets.COPR_LOGIN }}
-          username = universish
-          token = ${{ secrets.COPR_TOKEN }}
-          copr_url = https://copr.fedorainfracloud.org
-          EOF
+          echo "${{ secrets.COPR_CONFIG }}" > ~/.config/copr
           chmod 600 ~/.config/copr
+          
+          # Doğrulama (Token içeriğini ifşa etmeden varlığını kontrol eder)
+          if [ ! -s ~/.config/copr ] || ! grep -q "token" ~/.config/copr; then
+            echo "HATA: COPR_CONFIG secret'ı boş veya eksik!" >&2
+            exit 1
+          fi
 
       - name: Sürüm ve Varlık Kontrolü
         id: check
