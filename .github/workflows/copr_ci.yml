@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Zorlanacak Sürüm (Örn: 2026.9.5 veya 2026.9.8)'
+        description: 'Zorlanacak Sürüm (Örn: 2026.9.8)'
         required: false
         type: string
 
@@ -33,137 +33,125 @@ jobs:
           mkdir -p ~/.config
           echo "${{ secrets.COPR_CONFIG }}" > ~/.config/copr
           chmod 600 ~/.config/copr
-          
-          # Doğrulama (Token içeriğini ifşa etmeden varlığını kontrol eder)
           if [ ! -s ~/.config/copr ] || ! grep -q "token" ~/.config/copr; then
             echo "HATA: COPR_CONFIG secret'ı boş veya eksik!" >&2
             exit 1
           fi
 
-      - name: Sürüm ve Varlık Kontrolü
-        id: check
+      - name: Masaüstü ve CLI Sürümlerini Tespit Et
+        id: fetch
         run: |
           FORCE_VER="${{ github.event.inputs.force_version }}"
           REPO="openclaw/openclaw"
-
+          
           if [ -n "$FORCE_VER" ]; then
-            RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/v${FORCE_VER}" 2>/dev/null || curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${FORCE_VER}" 2>/dev/null || echo "{}")
-            VERSION="$FORCE_VER"
+            RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
+            LATEST_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
+            CLI_VERSION="$FORCE_VER"
+            DESKTOP_VERSION="$FORCE_VER"
+            DESKTOP_RELEASE="$LATEST_RELEASE"
           else
-            RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")
-            VERSION=$(echo "$RELEASE_JSON" | jq -r .tag_name | sed 's/^v//')
+            RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
+            # CLI için doğrudan en son sürümü al
+            LATEST_RELEASE=$(echo "$RELEASES_JSON" | jq -c '.[0]')
+            CLI_VERSION=$(echo "$LATEST_RELEASE" | jq -r .tag_name | sed 's/^v//')
+            
+            # Masaüstü için içinde AppImage veya deb barındıran en son sürümü bul
+            DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets[]? | .name | test(".*(linux|x86_64|amd64).*\\.(AppImage|deb)$"; "i"))] | .[0]')
+            DESKTOP_VERSION=$(echo "$DESKTOP_RELEASE" | jq -r .tag_name | sed 's/^v//')
           fi
 
-          echo "Hedef Sürüm: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "CLI Hedef Sürüm: $CLI_VERSION"
+          echo "Desktop Hedef Sürüm: $DESKTOP_VERSION"
+          echo "cli_version=$CLI_VERSION" >> $GITHUB_OUTPUT
+          echo "desktop_version=$DESKTOP_VERSION" >> $GITHUB_OUTPUT
 
-          # Varlık tespiti (AppImage > Deb > Tarball > npm)
-          APPIMAGE_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
-          DEB_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test(".*(amd64|x86_64).*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
-          TAR_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.tar\\.(gz|xz)$"; "i")) | .browser_download_url' | head -n 1)
+          # Masaüstü İndirme URL'leri
+          APPIMAGE_URL=$(echo "$DESKTOP_RELEASE" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.AppImage$"; "i")) | .browser_download_url' | head -n 1)
+          DEB_URL=$(echo "$DESKTOP_RELEASE" | jq -r '.assets[]? | select(.name | test(".*(amd64|x86_64).*\\.deb$"; "i")) | .browser_download_url' | head -n 1)
+          
+          # CLI İndirme URL'leri
+          TAR_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[]? | select(.name | test(".*(linux|x86_64|amd64).*\\.tar\\.(gz|xz)$"; "i")) | .browser_download_url' | head -n 1)
 
+          # --- 1. DESKTOP HAZIRLIĞI ---
+          mkdir -p workdir_desktop bundle_desktop/app
+          cd workdir_desktop
           if [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
-            echo "download_url=$APPIMAGE_URL" >> $GITHUB_OUTPUT
-            echo "pkg_type=appimage" >> $GITHUB_OUTPUT
-          elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
-            echo "download_url=$DEB_URL" >> $GITHUB_OUTPUT
-            echo "pkg_type=deb" >> $GITHUB_OUTPUT
-          elif [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
-            echo "download_url=$TAR_URL" >> $GITHUB_OUTPUT
-            echo "pkg_type=tarball" >> $GITHUB_OUTPUT
-          else
-            echo "İkili dosya bulunamadı, npm fallback kullanılacak."
-            echo "pkg_type=npm" >> $GITHUB_OUTPUT
-          fi
-          echo "skip=false" >> $GITHUB_OUTPUT
-
-      - name: Paketi Çıkar, Demetle ve Arşivle
-        if: steps.check.outputs.skip == 'false'
-        run: |
-          VERSION="${{ steps.check.outputs.version }}"
-          PKG_TYPE="${{ steps.check.outputs.pkg_type }}"
-          URL="${{ steps.check.outputs.download_url }}"
-
-          mkdir -p workdir app_extracted bundle/app
-          cd workdir
-
-          if [ "$PKG_TYPE" = "appimage" ]; then
-            echo ".AppImage açılıyor: $URL"
-            curl -fsSL -o package.AppImage "$URL"
+            echo "Desktop AppImage indiriliyor..."
+            curl -fsSL -o package.AppImage "$APPIMAGE_URL"
             unsquashfs -d ../app_extracted package.AppImage || 7z x package.AppImage -o../app_extracted/ > /dev/null
-            cd ../app_extracted
-            rm -f .DirIcon 2>/dev/null || true
-            cp -a * ../bundle/app/
-          elif [ "$PKG_TYPE" = "deb" ]; then
-            echo ".deb paketi açılıyor: $URL"
-            curl -fsSL -o package.deb "$URL"
+            cp -a ../app_extracted/* ../bundle_desktop/app/
+          elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
+            echo "Desktop deb indiriliyor..."
+            curl -fsSL -o package.deb "$DEB_URL"
             ar x package.deb
             tar -xf data.tar.* -C ../app_extracted/
-            cd ../app_extracted
-            OPT_DIR=$(find opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
-            [ -n "$OPT_DIR" ] && cp -a "$OPT_DIR"/* ../bundle/app/ || cp -a * ../bundle/app/
-          elif [ "$PKG_TYPE" = "tarball" ]; then
-            echo "Tarball açılıyor: $URL"
-            curl -fsSL -o package.tar.gz "$URL"
-            tar -xf package.tar.gz -C ../app_extracted/
-            cd ../app_extracted
-            cp -a * ../bundle/app/
-          elif [ "$PKG_TYPE" = "npm" ]; then
-            echo "npm CLI demetleniyor..."
-            npm install -g --prefix "$GITHUB_WORKSPACE/bundle/app" --omit=dev --no-audit --no-fund --ignore-engines "openclaw@${VERSION}"
-            cd "$GITHUB_WORKSPACE/bundle/app"
+            OPT_DIR=$(find ../app_extracted/opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+            [ -n "$OPT_DIR" ] && cp -a "$OPT_DIR"/* ../bundle_desktop/app/ || cp -a ../app_extracted/* ../bundle_desktop/app/
+          fi
+          cd ..
+          
+          # İkon garantisi (Yalnızca masaüstüne ait)
+          ICON_FOUND=$(find bundle_desktop/app/ -maxdepth 3 -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" \) 2>/dev/null | head -n 1)
+          if [ -z "$ICON_FOUND" ]; then
+            curl -fsSL -o bundle_desktop/app/openclaw.png "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || true
+          else
+            cp -a "$ICON_FOUND" bundle_desktop/app/openclaw.png
+          fi
+          
+          mv bundle_desktop "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
+          tar -czf "openclaw-desktop-${DESKTOP_VERSION}-x86_64.tar.gz" "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
+          rm -rf workdir_desktop app_extracted "openclaw-desktop-${DESKTOP_VERSION}-x86_64"
+
+          # --- 2. CLI HAZIRLIĞI ---
+          mkdir -p workdir_cli bundle_cli/app
+          cd workdir_cli
+          if [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
+            echo "CLI Tarball indiriliyor..."
+            curl -fsSL -o package.tar.gz "$TAR_URL"
+            tar -xf package.tar.gz -C ../bundle_cli/app/ --strip-components=1 2>/dev/null || tar -xf package.tar.gz -C ../bundle_cli/app/
+          else
+            echo "CLI npm'den derleniyor..."
+            npm install -g --prefix "$GITHUB_WORKSPACE/bundle_cli/app" --omit=dev --no-audit --no-fund --ignore-engines "openclaw@${CLI_VERSION}"
+            cd "$GITHUB_WORKSPACE/bundle_cli/app"
             [ -f bin/openclaw ] && ln -sf bin/openclaw openclaw
           fi
-
-          # HD Simge Güvencesi (Paket içinde yoksa resmi kaynaklardan indir)
-          ICON_FOUND=$(find "$GITHUB_WORKSPACE/bundle/app" -maxdepth 3 -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" \) 2>/dev/null | head -n 1)
-          if [ -z "$ICON_FOUND" ]; then
-            echo "Resmi HD simge indiriliyor..."
-            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || \
-            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/public/favicon.png" 2>/dev/null || true
-          else
-            cp -a "$ICON_FOUND" "$GITHUB_WORKSPACE/bundle/app/openclaw.png"
-          fi
-
           cd "$GITHUB_WORKSPACE"
-          find bundle/app/ -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
-          mv bundle "openclaw-${VERSION}-x86_64"
-          tar -czf "openclaw-${VERSION}-x86_64.tar.gz" "openclaw-${VERSION}-x86_64"
-          rm -rf workdir app_extracted "openclaw-${VERSION}-x86_64"
+          
+          mv bundle_cli "openclaw-cli-${CLI_VERSION}-x86_64"
+          tar -czf "openclaw-cli-${CLI_VERSION}-x86_64.tar.gz" "openclaw-cli-${CLI_VERSION}-x86_64"
+          rm -rf workdir_cli "openclaw-cli-${CLI_VERSION}-x86_64"
 
-      - name: SRPM Oluştur ve Copr'a Gönder
-        if: steps.check.outputs.skip == 'false'
+      - name: Üçlü SRPM Mimarisini Derle ve Gönder
         run: |
-          VERSION="${{ steps.check.outputs.version }}"
+          CLI_VER="${{ steps.fetch.outputs.cli_version }}"
+          DESK_VER="${{ steps.fetch.outputs.desktop_version }}"
           RELEASE="${{ github.run_number }}"
 
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-          mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
-          cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
+          
+          # Kaynak arşivleri yerine koy
+          mv openclaw-desktop-${DESK_VER}-x86_64.tar.gz rpmbuild/SOURCES/
+          mv openclaw-cli-${CLI_VER}-x86_64.tar.gz rpmbuild/SOURCES/
+          
+          # 3 ayrı Spec'i kopyala ve sürüm verilerini dinamik olarak işle
+          cp specs/openclaw-desktop.spec rpmbuild/SPECS/
+          cp specs/openclaw-cli.spec rpmbuild/SPECS/
+          cp specs/openclaw.spec rpmbuild/SPECS/
 
-          sed -i "s/%{_version}/${VERSION}/g" rpmbuild/SPECS/openclaw.spec
+          sed -i "s/%{_version}/${DESK_VER}/g" rpmbuild/SPECS/openclaw-desktop.spec
+          sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw-desktop.spec
+
+          sed -i "s/%{_version}/${CLI_VER}/g" rpmbuild/SPECS/openclaw-cli.spec
+          sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw-cli.spec
+
+          sed -i "s/%{_version}/${CLI_VER}/g" rpmbuild/SPECS/openclaw.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw.spec
 
-          echo "Oluşturuluyor: openclaw-${VERSION}-${RELEASE}"
+          # 3 SRPM derle
+          rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-desktop.spec
+          rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-cli.spec
+          rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw.spec
 
-          rpmbuild -bs \
-            --define "_topdir $PWD/rpmbuild" \
-            rpmbuild/SPECS/openclaw.spec
-
-          SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
-
-          # copr-cli varlığını garantiye al
-          if ! command -v copr-cli &> /dev/null; then
-            echo "copr-cli bulunamadı, yükleniyor..."
-            sudo pip3 install --break-system-packages copr-cli 2>/dev/null || sudo pip3 install copr-cli
-          fi
-
-          copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
-          
-      - name: Gerekli Paketleri Kur
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl rpm squashfs-tools p7zip-full binutils pipx
-          pipx install copr-cli
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          
+          # Aynı anda Copr'a gönder. (Copr hepsini eşzamanlı sıraya alacaktır).
+          copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." rpmbuild/SRPMS/*.src.rpm
