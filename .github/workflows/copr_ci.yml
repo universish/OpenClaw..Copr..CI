@@ -120,6 +120,7 @@ jobs:
           mkdir -p workdir app_extracted bundle/app
           cd workdir
 
+          # 1. Paket Türüne Göre Ayıklama
           if [ "$PKG_TYPE" = "appimage" ]; then
             echo ".AppImage paketi açılıyor: $URL"
             curl -fsSL -o package.AppImage "$URL"
@@ -127,6 +128,26 @@ jobs:
             cd ../app_extracted
             rm -f .DirIcon 2>/dev/null || true
             cp -a * ../bundle/app/
+          elif [ "$PKG_TYPE" = "tarball" ]; then
+            echo "Portable tarball açılıyor: $URL"
+            curl -fsSL -o package.tar.gz "$URL"
+            mkdir -p ../app_extracted
+            tar -xf package.tar.gz -C ../app_extracted/
+            cd ../app_extracted
+            SUB_DIR=$(find . -mindepth 1 -maxdepth 1 -type d | head -n 1)
+            if [ -n "$SUB_DIR" ] && [ $(find . -mindepth 1 -maxdepth 1 | wc -l) -eq 1 ]; then
+              cp -a "$SUB_DIR"/* ../bundle/app/
+            else
+              cp -a * ../bundle/app/
+            fi
+          elif [ "$PKG_TYPE" = "deb" ]; then
+            echo ".deb paketi açılıyor: $URL"
+            curl -fsSL -o package.deb "$URL"
+            ar x package.deb
+            tar -xf data.tar.* -C ../app_extracted/
+            cd ../app_extracted
+            OPT_DIR=$(find opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+            [ -n "$OPT_DIR" ] && cp -a "$OPT_DIR"/* ../bundle/app/ || cp -a * ../bundle/app/
           elif [ "$PKG_TYPE" = "npm" ]; then
             echo "npm paketi demetleniyor..."
             npm install -g --prefix "$GITHUB_WORKSPACE/bundle/app" --omit=dev --no-audit --no-fund --ignore-engines "openclaw@${VERSION}"
@@ -134,11 +155,15 @@ jobs:
             [ -f bin/openclaw ] && ln -sf bin/openclaw openclaw
           fi
 
-          # Yüksek çözünürlüklü orijinal logoyu garantiye al (Bulanıklığı önler)
-          curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
-            "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || \
-          curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
-            "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/public/favicon.png" 2>/dev/null || true
+          # 2. HD Simge Güvencesi (Bulanıklığı kökten çözer)
+          ICON_FOUND=$(find "$GITHUB_WORKSPACE/bundle/app" -maxdepth 3 -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" \) 2>/dev/null | head -n 1)
+          if [ -z "$ICON_FOUND" ]; then
+            echo "Pakette ikon yok, resmi 512x512 HD ikon çekiliyor..."
+            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/assets/icon.png" 2>/dev/null || \
+            curl -fsSL -o "$GITHUB_WORKSPACE/bundle/app/openclaw.png" \
+              "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/public/favicon.png" 2>/dev/null || true
+          fi
 
           cd "$GITHUB_WORKSPACE"
           find bundle/app/ -type f \( -name "AppRun*" -o -name "*openclaw*" -o -name "*OpenClaw*" \) -exec chmod +x {} + 2>/dev/null || true
@@ -155,26 +180,25 @@ jobs:
           mv "openclaw-${VERSION}-x86_64.tar.gz" rpmbuild/SOURCES/
           cp specs/openclaw.spec rpmbuild/SPECS/openclaw.spec
           
-          # COPR API'sinden bu sürüm için yapılmış en son build'in release numarasını çek (+1 ekle)
-          LATEST_BUILD=$(curl -s "https://copr.fedorainfracloud.org/api_3/build/list/?ownername=universish&projectname=OpenClaw..&packagename=openclaw" \
-            | jq -r --arg V "$VERSION" '.items[] | select(.pkg_version | test("^" + $V + "-")) | .pkg_version' 2>/dev/null | head -n 1)
+          # Copr API üzerinden bu sürüm için en son release numarasını sorgula ve +1 ekle
+          LATEST_REL=$(curl -s "https://copr.fedorainfracloud.org/api_3/build/list/?ownername=universish&projectname=OpenClaw..&packagename=openclaw" \
+            | jq -r --arg V "$VERSION" '[.items[] | select(.pkg_version | startswith($V + "-")) | .pkg_version | capture("-(?<rel>[0-9]+)") | .rel | tonumber] | max // 0' 2>/dev/null || echo 0)
+          
+          RELEASE=$((LATEST_REL + 1))
+          echo "Dinamik Sürüm ve Paketleme Numarası: ${VERSION}-${RELEASE}"
 
-          if [[ "$LATEST_BUILD" =~ -([0-9]+) ]]; then
-            PREV_REL="${BASH_REMATCH[1]}"
-            RELEASE=$((PREV_REL + 1))
-          else
-            RELEASE=1
-          fi
-          echo "Dinamik Paketleme Numarası: ${VERSION}-${RELEASE}"
+          # Makroları kalıcı olarak spec dosyasına işle (Mock unexpanded macro hatasını kesin çözer)
+          sed -i "s/%{_version}/${VERSION}/g" rpmbuild/SPECS/openclaw.spec
+          sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw.spec
 
           # SRPM paketini oluştur
           rpmbuild -bs \
             --define "_topdir $PWD/rpmbuild" \
-            --define "_version ${VERSION}" \
-            --define "_release ${RELEASE}" \
             rpmbuild/SPECS/openclaw.spec
           
           SRPM_FILE=$(ls rpmbuild/SRPMS/openclaw-*.src.rpm)
+          echo "Oluşturulan SRPM: $SRPM_FILE"
+          
           copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." "$SRPM_FILE"
           
       - name: Sürümü Güncelle ve Değişiklikleri Kaydet
