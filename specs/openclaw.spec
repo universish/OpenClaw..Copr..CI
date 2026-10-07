@@ -98,14 +98,15 @@ Categories=Utility;Network;Chat;
 MimeType=x-scheme-handler/openclaw;
 EOF
 
-# Uygulama simgesi
+# Uygulama simgesi (Paket içinden ara, yoksa fallback oluştur)
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
-if [ -f %{buildroot}/opt/%{name}/openclaw.png ]; then
-    install -m 0644 %{buildroot}/opt/%{name}/openclaw.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
-elif [ -f %{buildroot}/opt/%{name}/OpenClaw.png ]; then
-    install -m 0644 %{buildroot}/opt/%{name}/OpenClaw.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
-elif [ -f %{buildroot}/opt/%{name}/openclaw-desktop.png ]; then
-    install -m 0644 %{buildroot}/opt/%{name}/openclaw-desktop.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+ICON_SRC=$(find %{buildroot}/opt/%{name} -type f \( -iname "*openclaw*.png" -o -iname "*OpenClaw*.png" -o -iname "*icon*.png" \) 2>/dev/null | head -n 1)
+
+if [ -n "$ICON_SRC" ]; then
+    install -m 0644 "$ICON_SRC" %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+else
+    # npm gibi saf CLI sürümlerinde %files hatasını önlemek için 1x1 şeffaf PNG üret
+    echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" | base64 -d > %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
 fi
 
 %check
