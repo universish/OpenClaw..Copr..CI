@@ -35,7 +35,7 @@
 
 ## 🚀 Overview
 
-[OpenClaw](https://openclaw.ai) is an all-in-one personal AI assistant and communication gateway. Upstream distributes its primary CLI via npm (which strictly enforces Node.js 24.16+/26.1+ LTS runtime gates and WAL-safe SQLite capabilities) and occasionally publishes pre-compiled Linux desktop artifacts as standalone `.deb` and `.AppImage` packages (`OpenClaw-<yyyy.mm.dd>-amd64`).
+[OpenClaw](https://openclaw.ai) is an all-in-one personal AI assistant and communication gateway. Upstream distributes its primary CLI via npm (which strictly enforces Node.js 24.16+/26.1+ LTS runtime gates and WAL-safe SQLite capabilities) and occasionally publishes pre-compiled Linux desktop artifacts as standalone `.deb` and `.AppImage` packages (`OpenClaw-<<year>.XX.YY>-amd64`).
 
 Building Node.js/Electron desktop applications directly from source inside isolated build environments like Fedora Mock or Copr is frequently hindered by offline network boundaries, Node.js version constraints, and complex `pnpm` workspace toolchains. 
 
