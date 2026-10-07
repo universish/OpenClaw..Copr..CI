@@ -116,14 +116,14 @@ sudo dnf install openclaw-desktop
 
 **Refresh Repository Cache and Upgrade All System Packages:**
 
-```bash
+```
 sudo dnf upgrade --refresh
 
 ```
 
 **Upgrade Only OpenClaw Packages:**
 
-```bash
+```
 sudo dnf upgrade openclaw openclaw-cli openclaw-desktop
 
 ```
@@ -131,8 +131,7 @@ sudo dnf upgrade openclaw openclaw-cli openclaw-desktop
 **Install or Downgrade to a Specific Version:**
 Because the CLI and Desktop update independently, you can mix and match versions by appending the target release version to the package name:
 
-```bash
-# Example: Pinning specific releases
+```
 sudo dnf install openclaw-desktop-2026.9.5
 sudo dnf install openclaw-cli-2026.10.1
 
@@ -149,6 +148,99 @@ Remove all OpenClaw components from the system:
 sudo dnf remove openclaw openclaw-cli openclaw-desktop
 
 ```
+
+### **Easy path** (CLI still installed):
+
+The command attempts independent requested cleanup scopes and returns a nonzero status if any scope fails or is blocked. Service teardown remains the safety gate for state and workspace deletion; if that gate fails, those data scopes are preserved while app cleanup is still attempted. Partial cleanup is reported explicitly and is never followed by an unconditional completion result.
+
+* **OpenClaw Uninstall:**
+```
+openclaw uninstall
+
+```
+
+The interactive prompt preselects only the Gateway service. For complete local removal, also select state, workspace, and app in the prompt, or run `openclaw uninstall --all`. State removal preserves configured workspace directories unless you also select `--workspace`.
+```
+openclaw uninstall --all
+
+```
+
+```
+openclaw uninstall --workspace
+
+```
+
+* **Preview what will be removed (safe):**
+```
+openclaw uninstall --dry-run --all
+
+```
+
+* **Non-interactive (automation / npx):**
+Use with caution and only after confirming scopes:
+```
+openclaw uninstall --all --yes --non-interactive
+npx -y openclaw uninstall --all --yes --non-interactive
+
+```
+
+Flags: `--service`, `--state`, `--workspace`, `--app` select individual scopes; `--all` selects all four.
+
+```
+openclaw uninstall --state
+
+```
+
+Unlike `openclaw uninstall --state`, manual state deletion does not preserve workspaces. Stop and uninstall the service successfully before deleting files. Before manual state or prefix deletion, move any configuration you want to keep outside that directory.
+
+1. Stop the gateway service:
+```
+openclaw gateway stop
+
+```
+
+2. Uninstall the gateway service (launchd/systemd/schtasks):
+```
+openclaw gateway uninstall
+
+```
+
+3. Decide whether to preserve the workspace.
+Move every configured workspace you want to keep, including `~/.openclaw/workspace`, outside the state directory before manual deletion. Workspaces inside that directory will otherwise be deleted with it; they need no separate deletion.
+
+4. Delete state + config:
+```
+rm -rf "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
+
+```
+
+If you set `OPENCLAW_CONFIG_PATH` to a custom location outside the state dir, delete that file too. Restore preserved workspaces after recreating their parent, or configure their new paths on reinstall.
+
+5. Delete an external workspace only if you want to remove its agent files too:
+```
+rm -rf /path/to/external/workspace
+
+```
+
+6. [Remove the CLI](https://docs.openclaw.ai/install/uninstall#remove-the-cli) using the installation owner below.
+
+
+### **Manual service removal** (CLI not installed):
+
+Use this if the gateway service keeps running but `openclaw` is missing.
+
+Default unit name is `openclaw-gateway.service` (or `openclaw-gateway-<profile>.service`). A pre-rename `clawdbot-gateway.service` unit may still exist on machines upgraded from very old installs; `openclaw uninstall` / `openclaw gateway uninstall` detects and removes it automatically.
+
+```
+systemctl --user disable --now openclaw-gateway.service
+rm -f ~/.config/systemd/user/openclaw-gateway.service{,.bak}
+systemctl --user daemon-reload
+
+```
+
+See All Remove Commands [Uninstall DOCS](https://docs.openclaw.ai/install/uninstall)
+
+---
 
 **Disable the Copr Repository:**
 Deactivate the repository to stop receiving updates:
@@ -203,9 +295,22 @@ openclaw-cli
 
 ```
 
+or **Onboarding (CLI):**
+
+```
+openclaw onboard
+
+```
+
 See [CLI DOCS](https://docs.openclaw.ai/cli)
+See [Onboarding DOCS](https://docs.openclaw.ai/start/wizard)
 
 * **TUI:**
+```
+openclaw tui
+
+```
+or
 ```
 openclaw-tui
 
@@ -228,6 +333,12 @@ openclaw
 ```
 
 See [OpenClaw DOCS](https://docs.openclaw.ai/)
+
+---
+
+### Quickstart:
+
+See [Quickstart](https://docs.openclaw.ai/start/getting-started)
 
 ---
 
