@@ -43,6 +43,10 @@ This repository resolves that issue by implementing an automated **Deb/AppImage/
 
 ---
 
+<img width="1892" height="564" alt="Ekran Görüntüsü 2026-10-08 02-49-42_cleaned" src="https://github.com/user-attachments/assets/3bfb4f52-fbbf-4271-914d-aeba49621c30" />
+
+---
+
 ## 🏗️ Decoupled Architecture
 
 OpenClaw operates with a split client-server model: a background Node.js gateway/CLI and an Electron-based desktop GUI. Because upstream publishes these components at different cadences, this repository implements a **Multi-Package Architecture** to prevent RPM file conflicts and ensure granular updates:
