@@ -20,7 +20,7 @@ Requires:       hicolor-icon-theme
 Requires:       xdg-utils
 
 %description
-OpenClaw is a personal AI assistant and communication gateway.
+OpenClaw is a personal AI assistant, TUI, web workspace, and communication gateway.
 
 %prep
 %autosetup -n openclaw-%{version}-x86_64
@@ -38,8 +38,8 @@ find %{buildroot}/opt/%{name} -type f \( -name "AppRun*" -o -name "*openclaw*" -
 
 mkdir -p %{buildroot}%{_bindir}
 
-# 1. Terminal CLI Başlatıcısı (/usr/bin/openclaw)
-cat << 'EOF' > %{buildroot}%{_bindir}/%{name}
+# 1. Saf Komut Satırı Motoru (/usr/bin/openclaw-cli)
+cat << 'EOF' > %{buildroot}%{_bindir}/%{name}-cli
 #!/usr/bin/env bash
 if [ -x "$HOME/.openclaw/bin/openclaw" ]; then
     exec "$HOME/.openclaw/bin/openclaw" "$@"
@@ -47,32 +47,49 @@ elif [ -x /opt/openclaw/bin/openclaw ]; then
     exec /opt/openclaw/bin/openclaw "$@"
 elif [ -x /opt/openclaw/openclaw ] && [ ! -d /opt/openclaw/openclaw ]; then
     exec /opt/openclaw/openclaw "$@"
-elif [ -x /opt/openclaw/AppRun ]; then
-    exec /opt/openclaw/AppRun "$@"
+else
+    echo "Hata: OpenClaw CLI ikilisi bulunamadı." >&2
+    exit 1
 fi
 EOF
-chmod +x %{buildroot}%{_bindir}/%{name}
+chmod +x %{buildroot}%{_bindir}/%{name}-cli
 
-# 2. Masaüstü Arayüz Başlatıcısı (/usr/bin/openclaw-desktop)
+# 2. Terminal Sohbet Arayüzü (/usr/bin/openclaw-tui)
+cat << 'EOF' > %{buildroot}%{_bindir}/%{name}-tui
+#!/usr/bin/env bash
+exec /usr/bin/openclaw-cli tui "$@"
+EOF
+chmod +x %{buildroot}%{_bindir}/%{name}-tui
+
+# 3. Masaüstü/WebUI Arayüzü (/usr/bin/openclaw-desktop)
 cat << 'EOF' > %{buildroot}%{_bindir}/%{name}-desktop
 #!/usr/bin/env bash
-# AppImage varsa (2026.9.5) Electron GUI başlat
 if [ -x /opt/openclaw/AppRun ]; then
     exec /opt/openclaw/AppRun "$@"
 elif [ -x /opt/openclaw/OpenClaw ] && [ ! -d /opt/openclaw/OpenClaw ]; then
     exec /opt/openclaw/OpenClaw "$@"
-# AppImage yoksa (2026.9.8) doğrudan Web Dashboard başlat
-elif [ -x "$HOME/.openclaw/bin/openclaw" ]; then
-    exec "$HOME/.openclaw/bin/openclaw" dashboard "$@"
-elif [ -x /opt/openclaw/bin/openclaw ]; then
-    exec /opt/openclaw/bin/openclaw dashboard "$@"
 else
-    xdg-open "http://127.0.0.1:18789/" 2>/dev/null || true
+    exec /usr/bin/openclaw-cli dashboard "$@"
 fi
 EOF
 chmod +x %{buildroot}%{_bindir}/%{name}-desktop
 
-# Masaüstü Kısayolu
+# 4. Varsayılan Akıllı Başlatıcı (/usr/bin/openclaw)
+cat << 'EOF' > %{buildroot}%{_bindir}/%{name}
+#!/usr/bin/env bash
+if [ $# -gt 0 ]; then
+    exec /usr/bin/openclaw-cli "$@"
+elif [ -x /opt/openclaw/AppRun ]; then
+    exec /opt/openclaw/AppRun "$@"
+elif [ -x /opt/openclaw/OpenClaw ] && [ ! -d /opt/openclaw/OpenClaw ]; then
+    exec /opt/openclaw/OpenClaw "$@"
+else
+    exec /usr/bin/openclaw-cli dashboard "$@"
+fi
+EOF
+chmod +x %{buildroot}%{_bindir}/%{name}
+
+# Masaüstü Kısayolu (.desktop)
 mkdir -p %{buildroot}%{_datadir}/applications
 cat << 'EOF' > %{buildroot}%{_datadir}/applications/%{name}.desktop
 [Desktop Entry]
@@ -88,7 +105,7 @@ Terminal=false
 Categories=Utility;Network;Chat;
 EOF
 
-# Uygulama Simgesi (HD Simgeyi hem hicolor hem pixmaps altına koy)
+# Yüksek Çözünürlüklü İkon Kurulumu
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
 mkdir -p %{buildroot}%{_datadir}/pixmaps
 
@@ -98,8 +115,8 @@ if [ -n "$ICON_SRC" ]; then
     install -m 0644 "$ICON_SRC" %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
     install -m 0644 "$ICON_SRC" %{buildroot}%{_datadir}/pixmaps/%{name}.png
 else
-    touch %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
-    touch %{buildroot}%{_datadir}/pixmaps/%{name}.png
+    echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" | base64 -d > %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png
+    install -m 0644 %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/%{name}.png %{buildroot}%{_datadir}/pixmaps/%{name}.png
 fi
 
 %check
@@ -108,6 +125,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 %files
 /opt/%{name}
 %{_bindir}/%{name}
+%{_bindir}/%{name}-cli
+%{_bindir}/%{name}-tui
 %{_bindir}/%{name}-desktop
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/512x512/apps/%{name}.png
@@ -115,4 +134,4 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{name}.desktop
 
 %changelog
 * Wed Oct 07 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
-- Automated packaging with dynamic release counter.
+- Multi-launcher packaging with intelligent fallback and dynamic release tracking.
