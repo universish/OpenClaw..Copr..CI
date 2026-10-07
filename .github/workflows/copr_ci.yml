@@ -105,6 +105,11 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "skip=false" >> $GITHUB_OUTPUT
 
+      - name: Node.js 24 Kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Paketi Çıkar, Demetle ve Arşivle
         if: steps.check.outputs.skip == 'false'
         run: |
