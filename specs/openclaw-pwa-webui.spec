@@ -1,10 +1,31 @@
+%global debug_package %{nil}
+
+Name:           openclaw-pwa-webui
+Version:        %{_version}
+Release:        %{_release}%{?dist}
+Summary:        OpenClaw WebUI (Smart PWA Launcher)
+License:        Proprietary
+URL:            https://openclaw.ai
+BuildArch:      noarch
+
+Requires:       openclaw-cli
+Requires:       pciutils
+Requires:       xdg-utils
+
+%description
+Smart PWA wrapper for OpenClaw. Eliminates the Electron dependency by intercepting the dashboard token and launching the interface as a borderless app window in the user's default Chromium or Firefox browser, complete with dynamic Wayland and GPU flag injection.
+
+%prep
+
+%build
+
 %install
 rm -rf %{buildroot}
 mkdir -p %{buildroot}%{_bindir}
 mkdir -p %{buildroot}%{_libexecdir}
 mkdir -p %{buildroot}%{_datadir}/applications
 
-# --- 1. AKILLI TARAYICI SARMALAYICISI ---
+# 1. AKILLI TARAYICI SARMALAYICISI
 cat << 'EOF' > %{buildroot}%{_libexecdir}/openclaw-browser-wrapper
 #!/usr/bin/env bash
 URL="$1"
@@ -44,11 +65,10 @@ fi
 EOF
 chmod +x %{buildroot}%{_libexecdir}/openclaw-browser-wrapper
 
-# --- 2. ANA BAŞLATICI (GATEWAY TETİKLEYİCİ EKLENDİ) ---
+# 2. ANA BAŞLATICI (GATEWAY TETİKLEYİCİ)
 cat << 'EOF' > %{buildroot}%{_bindir}/openclaw-webui
 #!/usr/bin/env bash
 
-# Gateway kapalıysa systemd üzerinden uyandır ve hazır olması için bekle
 if ! systemctl --user is-active --quiet openclaw-gateway.service; then
     systemctl --user start openclaw-gateway.service
     sleep 2
@@ -59,14 +79,13 @@ exec openclaw-cli dashboard "$@"
 EOF
 chmod +x %{buildroot}%{_bindir}/openclaw-webui
 
-# --- 3. MASAÜSTÜ KISAYOLU (.desktop) ---
+# 3. MASAÜSTÜ KISAYOLU (.desktop)
 cat << 'EOF' > %{buildroot}%{_datadir}/applications/openclaw-webui.desktop
 [Desktop Entry]
 Name=OpenClaw WebUI
 Comment=OpenClaw AI Assistant (PWA Mode)
 GenericName=AI Assistant
 Exec=/usr/bin/openclaw-webui
-# Şeffaf ikon yerine sistemin yerleşik web veya sohbet ikonunu kullanıyoruz
 Icon=applications-internet
 Type=Application
 StartupNotify=true
@@ -84,4 +103,4 @@ EOF
 * Thu Oct 08 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
 - Added Helium browser support to PWA wrapper.
 - Added auto-start trigger for systemd gateway daemon.
-- Fixed invisible desktop icon bug by utilizing native system icons.
+- Fixed desktop icon display with native system icons.
