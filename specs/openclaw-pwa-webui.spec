@@ -1,32 +1,10 @@
-%global debug_package %{nil}
-
-Name:           openclaw-pwa-webui
-Version:        %{_version}
-Release:        %{_release}%{?dist}
-Summary:        OpenClaw WebUI (Smart PWA Launcher)
-License:        Proprietary
-URL:            https://openclaw.ai
-BuildArch:      noarch
-
-Requires:       openclaw-cli
-Requires:       pciutils
-Requires:       xdg-utils
-
-%description
-Smart PWA wrapper for OpenClaw. Eliminates the Electron dependency by intercepting the dashboard token and launching the interface as a borderless app window in the user's default Chromium or Firefox browser, complete with dynamic Wayland and GPU flag injection.
-
-%prep
-
-%build
-
 %install
 rm -rf %{buildroot}
 mkdir -p %{buildroot}%{_bindir}
 mkdir -p %{buildroot}%{_libexecdir}
 mkdir -p %{buildroot}%{_datadir}/applications
-mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
 
-# Akıllı Tarayıcı Sarmalayıcısı
+# --- 1. AKILLI TARAYICI SARMALAYICISI ---
 cat << 'EOF' > %{buildroot}%{_libexecdir}/openclaw-browser-wrapper
 #!/usr/bin/env bash
 URL="$1"
@@ -46,6 +24,8 @@ DEFAULT_BROWSER=$(echo "$DEFAULT_BROWSER" | tr '[:upper:]' '[:lower:]')
 
 if [[ "$DEFAULT_BROWSER" == *"firefox"* ]] || [[ "$DEFAULT_BROWSER" == *"zen"* ]] || [[ "$DEFAULT_BROWSER" == *"librewolf"* ]]; then
     exec xdg-open "$URL"
+elif [[ "$DEFAULT_BROWSER" == *"helium"* ]]; then
+    exec helium --app="$URL" $CHROMIUM_FLAGS
 elif [[ "$DEFAULT_BROWSER" == *"cromite"* ]]; then
     exec cromite --app="$URL" $CHROMIUM_FLAGS
 elif [[ "$DEFAULT_BROWSER" == *"thorium"* ]]; then
@@ -64,22 +44,30 @@ fi
 EOF
 chmod +x %{buildroot}%{_libexecdir}/openclaw-browser-wrapper
 
-# Ana Başlatıcı
+# --- 2. ANA BAŞLATICI (GATEWAY TETİKLEYİCİ EKLENDİ) ---
 cat << 'EOF' > %{buildroot}%{_bindir}/openclaw-webui
 #!/usr/bin/env bash
+
+# Gateway kapalıysa systemd üzerinden uyandır ve hazır olması için bekle
+if ! systemctl --user is-active --quiet openclaw-gateway.service; then
+    systemctl --user start openclaw-gateway.service
+    sleep 2
+fi
+
 export BROWSER="/usr/libexec/openclaw-browser-wrapper"
 exec openclaw-cli dashboard "$@"
 EOF
 chmod +x %{buildroot}%{_bindir}/openclaw-webui
 
-# Masaüstü Kısayolu (.desktop)
+# --- 3. MASAÜSTÜ KISAYOLU (.desktop) ---
 cat << 'EOF' > %{buildroot}%{_datadir}/applications/openclaw-webui.desktop
 [Desktop Entry]
-Name=OpenClaw PWA
-Comment=OpenClaw AI Assistant (Lightweight WebUI)
+Name=OpenClaw WebUI
+Comment=OpenClaw AI Assistant (PWA Mode)
 GenericName=AI Assistant
 Exec=/usr/bin/openclaw-webui
-Icon=openclaw
+# Şeffaf ikon yerine sistemin yerleşik web veya sohbet ikonunu kullanıyoruz
+Icon=applications-internet
 Type=Application
 StartupNotify=true
 StartupWMClass=openclaw-webui
@@ -87,15 +75,13 @@ Terminal=false
 Categories=Utility;Network;Chat;
 EOF
 
-# İkon
-echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" | base64 -d > %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/openclaw.png
-
 %files
 %{_bindir}/openclaw-webui
 %{_libexecdir}/openclaw-browser-wrapper
 %{_datadir}/applications/openclaw-webui.desktop
-%{_datadir}/icons/hicolor/512x512/apps/openclaw.png
 
 %changelog
 * Thu Oct 08 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
-- Introduced standalone PWA webui launcher.
+- Added Helium browser support to PWA wrapper.
+- Added auto-start trigger for systemd gateway daemon.
+- Fixed invisible desktop icon bug by utilizing native system icons.
