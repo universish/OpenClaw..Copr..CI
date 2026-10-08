@@ -126,7 +126,7 @@ jobs:
           tar -czf "openclaw-cli-${CLI_VERSION}-x86_64.tar.gz" "openclaw-cli-${CLI_VERSION}-x86_64"
           rm -rf workdir_cli "openclaw-cli-${CLI_VERSION}-x86_64"
 
-      - name: Üçlü SRPM Mimarisini Derle ve Gönder
+      - name: 4'lü SRPM Mimarisini Derle ve Gönder
         run: |
           CLI_VER="${{ steps.fetch.outputs.cli_version }}"
           DESK_VER="${{ steps.fetch.outputs.desktop_version }}"
@@ -134,24 +134,35 @@ jobs:
 
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           
-          mv openclaw-desktop-${DESK_VER}-x86_64.tar.gz rpmbuild/SOURCES/
-          mv openclaw-cli-${CLI_VER}-x86_64.tar.gz rpmbuild/SOURCES/
+          # Mevcut kaynak arşivleri
+          mv openclaw-desktop-${DESK_VER}-x86_64.tar.gz rpmbuild/SOURCES/ 2>/dev/null || true
+          mv openclaw-cli-${CLI_VER}-x86_64.tar.gz rpmbuild/SOURCES/ 2>/dev/null || true
           
+          # 4 Spec dosyasını kopyala
           cp specs/openclaw-desktop.spec rpmbuild/SPECS/
           cp specs/openclaw-cli.spec rpmbuild/SPECS/
+          cp specs/openclaw-pwa-webui.spec rpmbuild/SPECS/
           cp specs/openclaw.spec rpmbuild/SPECS/
 
+          # Sürüm enjeksiyonları
           sed -i "s/%{_version}/${DESK_VER}/g" rpmbuild/SPECS/openclaw-desktop.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw-desktop.spec
 
           sed -i "s/%{_version}/${CLI_VER}/g" rpmbuild/SPECS/openclaw-cli.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw-cli.spec
 
+          sed -i "s/%{_version}/${CLI_VER}/g" rpmbuild/SPECS/openclaw-pwa-webui.spec
+          sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw-pwa-webui.spec
+
           sed -i "s/%{_version}/${CLI_VER}/g" rpmbuild/SPECS/openclaw.spec
           sed -i "s/%{_release}/${RELEASE}/g" rpmbuild/SPECS/openclaw.spec
 
+          # 4 SRPM derle
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-desktop.spec
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-cli.spec
+          rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-pwa-webui.spec
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw.spec
 
+          # Hepsini Copr'a fırlat
           copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." rpmbuild/SRPMS/*.src.rpm
+          
