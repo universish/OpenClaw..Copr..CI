@@ -28,7 +28,6 @@ OpenClaw Desktop GUI Client powered by Electron. This package provides the graph
 %build
 
 %install
-%install
 rm -rf %{buildroot}
 
 mkdir -p %{buildroot}/opt/openclaw-desktop
