@@ -83,12 +83,15 @@ Everything else follows the guidelines stringently:
 .
 ├── .github/
 │   └── workflows/
-│       └── copr_ci.yml          # Dual-track release detector and Copr build trigger
+│       └── copr_ci.yml                       # Release detector and Copr build trigger
+├── sources/
+│   └── com.openclaw.openclaw.metainfo.xml    # Meta info
 ├── specs/
-│   ├── openclaw-desktop.spec    # RPM spec for the Electron GUI client
-│   ├── openclaw-cli.spec        # RPM spec for the TUI, CLI, and Gateway daemon
-│   └── openclaw.spec            # RPM meta-package router
-├── rpmlintrc.txt                # Audit suppression for prebuilt blob constraints
+│   ├── openclaw-cli.spec                     # RPM spec for the TUI, CLI, and Gateway daemon
+│   ├── openclaw-desktop.spec                 # RPM spec for the Electron GUI client
+│   ├── openclaw-pwa-webui.spec               # RPM spec for the PWA WebUI client
+│   ├── openclaw.spec                         # RPM meta-package router
+│   └── rpmlintrc                             # Audit suppression for prebuilt blob constraints                            
 └── README.md
 
 ```
