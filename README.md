@@ -137,23 +137,53 @@ sudo dnf install openclaw-desktop
 
 ---
 
+## ⚙️ Background Service Management (Gateway)
+
+The OpenClaw CLI operates a background gateway daemon to coordinate AI and chat functions. You can manage this background service directly via the CLI:
+
++ Start the background gateway daemon:
+```
+openclaw gateway start
+
+```
+
++ Stop the running daemon:
+```
+openclaw gateway stop
+
+```
+
++ Restart the daemon:
+```
+openclaw gateway restart
+
+```
+
++ Check the real-time status and port health:
+```
+openclaw gateway status
+
+```
+
+---
+
 ## 🔄 Updates & Maintenance
 
-**Refresh Repository Cache and Upgrade All System Packages:**
+### **Refresh Repository Cache and Upgrade All System Packages:**
 
 ```
 sudo dnf upgrade --refresh
 
 ```
 
-**Upgrade Only OpenClaw Packages:**
+### **Upgrade Only OpenClaw Packages:**
 
 ```
 sudo dnf upgrade openclaw openclaw-cli openclaw-desktop
 
 ```
 
-**Install or Downgrade to a Specific Version:**
+### **Install or Downgrade to a Specific Version:**
 Because the CLI and Desktop update independently, you can mix and match versions by appending the target release version to the package name:
 
 ```
