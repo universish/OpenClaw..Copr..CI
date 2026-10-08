@@ -2,21 +2,10 @@
   <table>
     <tr>
       <td align="center" valign="middle">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Fedora_icon_%282021%29.svg" alt="Fedora Logo" width="110"/>
+        <img width="256" height="256" alt="256" src="https://github.com/user-attachments/assets/f3c9cefb-50a0-4b5b-bcde-1d86338f8098" />
       </td>
-      <td align="left" valign="middle">
-<pre style="color: #FF8C00; font-weight: bold; background: transparent; border: none; font-family: monospace; line-height: 1.2;">
- •●●:.        .:●●•
-:●●●●:        :●●●●:
-.●●●●:.:•●●•:.:●●●●.
- .●●●: •●●●●• :●●●. 
- ..:••●●●●●●●●••:.. 
-.::••••●●●●●●••••::.
- . .:  •●●●●•  :. .
-    .  :●●●●:  .
-      .●●●●●●.
-       :••••:
-</pre>
+      <td align="center" valign="middle">
+        <img width="256" height="256" src="https://upload.wikimedia.org/wikipedia/commons/4/41/Fedora_icon_%282021%29.svg" alt="Fedora Logo" width="110"/>
       </td>
     </tr>
   </table>
@@ -43,7 +32,31 @@ This repository resolves that issue by implementing an automated **Deb/AppImage/
 
 ---
 
-<img width="1892" height="564" alt="Ekran Görüntüsü 2026-10-08 02-49-42_cleaned" src="https://github.com/user-attachments/assets/3bfb4f52-fbbf-4271-914d-aeba49621c30" />
+<img width="1892" height="564" alt="openclaw-dashboard-icon" src="https://github.com/user-attachments/assets/68084df1-5f61-483e-a1be-76f51e079fe3" />
+
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="left" valign="middle">
+<pre style="color: #FF8C00; font-weight: bold; background: transparent; border: none; font-family: monospace; line-height: 1.2;">
+ •●●:.        .:●●•
+:●●●●:        :●●●●:
+.●●●●:.:•●●•:.:●●●●.
+ .●●●: •●●●●• :●●●. 
+ ..:••●●●●●●●●••:.. 
+.::••••●●●●●●••••::.
+ . .:  •●●●●•  :. .
+    .  :●●●●:  .
+      .●●●●●●.
+       :••••:
+</pre>
+      </td>
+      <td align="right" valign="middle">
+        <img width="214" height="214" alt="openclaw" src="https://github.com/user-attachments/assets/5568213e-a1b2-416f-99e7-ea6a2266871b" />
+      </td>
+    </tr>
+  </table>
 
 ---
 
