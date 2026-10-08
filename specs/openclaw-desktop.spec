@@ -41,10 +41,14 @@ mkdir -p %{buildroot}%{_bindir}
 # Masaüstü/WebUI Arayüzü Başlatıcısı (/usr/bin/openclaw-desktop)
 cat << 'EOF' > %{buildroot}%{_bindir}/openclaw-desktop
 #!/usr/bin/env bash
+
+# Electron Wayland/GPU beyaz ekran ve kapanma donmalarını çözen native bayraklar
+ELECTRON_OPTS="--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations"
+
 if [ -x /opt/openclaw-desktop/AppRun ]; then
-    exec /opt/openclaw-desktop/AppRun "$@"
+    exec /opt/openclaw-desktop/AppRun $ELECTRON_OPTS "$@"
 elif [ -x /opt/openclaw-desktop/OpenClaw ] && [ ! -d /opt/openclaw-desktop/OpenClaw ]; then
-    exec /opt/openclaw-desktop/OpenClaw "$@"
+    exec /opt/openclaw-desktop/OpenClaw $ELECTRON_OPTS "$@"
 else
     if command -v openclaw-cli >/dev/null 2>&1; then
         exec openclaw-cli dashboard "$@"
