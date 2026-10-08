@@ -252,10 +252,41 @@ sudo dnf remove openclaw-pwa-webui
 
 ```
 
-+ Uninstall only `openclaw-desktop` package:
++ **Uninstall only `openclaw-desktop` package:**
 
-* The `openclaw-desktop` package depends on the `openclaw-cli` package. If you remove the `openclaw-desktop` package, the `openclaw-cli` package will also be removed.*
-  
+**The `openclaw-desktop` package depends on the `openclaw-cli` package. If you remove the `openclaw-desktop` package, the `openclaw-cli` package will also be removed.**
+
+There are two ways to prevent DNF from mistaking the `openclaw-cli` package for an “unused dependency” and removing it:
+
+**Method 1: Use a One-Time Flag (The Fastest)**
+You can add the `--noautoremove` parameter to the removal command to disable the automatic removal process:
+
+```bash
+sudo dnf remove openclaw openclaw-desktop --noautoremove
+
+```
+
+**Method 2: Mark the Package as a “User-Installed” Package (The Safest)**
+If you tell DNF that the `openclaw-cli` package is not a dependency but a main package you installed yourself, it will never attempt to remove it on its own again. To do this, first mark it, then perform the removal as usual:
+
+```bash
+sudo dnf mark install openclaw-cli
+sudo dnf remove openclaw openclaw-desktop
+
+```
+
+Answers to Questions about Dependencies and Packages:
+
+1. Why do we also remove openclaw when uninstalling openclaw-desktop?
+Fedora’s package manager (DNF) strictly tracks dependencies. When you try to remove just openclaw-desktop, DNF says in the background, “But the meta-package named openclaw requires this to function; if I remove it, that package will break.” That’s why we remove that empty meta-package as well to break the “required dependency” chain.
+
+2. Does the openclaw-cli package work without openclaw?
+It definitely does. The actual background engine (Gateway), database, TUI, and commands are already directly included in the openclaw-cli package. The meta-package was merely a tool to facilitate its installation.
+
+3. The openclaw-pwa-webui package works without OpenClaw. Its own “Requires” rule lists only openclaw-cli. It has no structural connection to the meta-package named openclaw.
+
+---
+
 ### **Easy path** (CLI still installed):
 
 The command attempts independent requested cleanup scopes and returns a nonzero status if any scope fails or is blocked. Service teardown remains the safety gate for state and workspace deletion; if that gate fails, those data scopes are preserved while app cleanup is still attempted. Partial cleanup is reported explicitly and is never followed by an unconditional completion result.
