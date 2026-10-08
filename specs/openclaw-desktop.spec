@@ -67,7 +67,7 @@ Exec=/usr/bin/openclaw-desktop
 Icon=openclaw
 Type=Application
 StartupNotify=true
-StartupWMClass=OpenClaw
+StartupWMClass=openclaw
 Terminal=false
 Categories=Utility;Network;Chat;
 EOF
