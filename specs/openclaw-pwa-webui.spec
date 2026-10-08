@@ -121,6 +121,25 @@ EOF
 install -m 0644 %{SOURCE0} %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/openclaw.png
 install -m 0644 %{SOURCE0} %{buildroot}%{_datadir}/pixmaps/openclaw.png
 
+Source0:        openclaw.png
+
+# ... (prep, build ve install bölümleri aynen kalıyor) ...
+
+# Kurulum bittiğinde GNOME ikon önbelleğini anında tazele
+%post
+/bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
+if [ -x %{_bindir}/gtk-update-icon-cache ]; then
+    %{_bindir}/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+fi
+/usr/bin/update-desktop-database &>/dev/null || :
+
+%postun
+/bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
+if [ -x %{_bindir}/gtk-update-icon-cache ]; then
+    %{_bindir}/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+fi
+/usr/bin/update-desktop-database &>/dev/null || :
+
 %files
 %{_bindir}/openclaw-webui
 %{_libexecdir}/openclaw-browser-wrapper
