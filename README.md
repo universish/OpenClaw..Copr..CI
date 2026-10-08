@@ -104,6 +104,34 @@ Ensure the destination project exists on Fedora Copr:
 
 ---
 
+## 🧩 The Quad-Package Architecture (Modular Design)
+
+To accommodate different hardware capabilities and user preferences without forcing unnecessary dependencies, this repository splits the upstream OpenClaw monolithic experience into a highly modular **4-Package Architecture**. 
+
+You can mix and match these components based on your environment:
+
+*   📦 **`openclaw-desktop`** (`openclaw-desktop.spec`): The thick, standard Electron GUI client. It packages the upstream `.deb` or `.AppImage` releases into a native RPM. Best for users who want the traditional, isolated application experience.
+*   📦 **`openclaw-cli`** (`openclaw-cli.spec`): The core backbone. It provides the headless background Gateway daemon, the interactive Terminal UI (TUI), and command-line management tools. It is completely decoupled from any graphical dependencies.
+*   📦 **`openclaw-pwa-webui`** (`openclaw-pwa-webui.spec`): A custom, zero-overhead Smart PWA Launcher. It acts as a lightweight alternative to the thick Electron client (details below).
+*   📦 **`openclaw`** (`openclaw.spec`): The meta-package. Running `sudo dnf install openclaw` will automatically pull in the upstream-standard combination (`openclaw-desktop` + `openclaw-cli`) for a complete, out-of-the-box experience.
+
+---
+
+## ⚡ The Smart PWA Launcher (`openclaw-pwa-webui`)
+
+Electron-based desktop applications bundle their own entire Chromium rendering engine, which can lead to high memory consumption, redundant resource usage, and specific hardware acceleration bugs (such as Skia font rendering crashes on Linux or NVIDIA/Wayland lockups). 
+
+To solve this, we engineered the **`openclaw-pwa-webui`** package.
+
+### Why We Created It & User Benefits
+Instead of shipping a heavy Electron wrapper, this package relies on the browser you already have installed (e.g., Firefox, Chromium, Thorium, Cromite). 
+*   **Zero RAM Overhead:** It uses your existing browser's memory pool and cache.
+*   **Dynamic GPU Flag Injection:** Every time you launch it, a bash wrapper (`openclaw-browser-wrapper`) queries your system's PCI bus (`lspci`). If it detects an NVIDIA GPU, it automatically disables Vulkan to prevent Wayland white-screen crashes. If it detects AMD or Intel, it enables full Vulkan hardware acceleration.
+*   **Seamless Interception:** It intercepts the `openclaw dashboard` command, generates the secure authentication token from the background daemon, and opens the WebUI in "App Mode" (`--app=URL`). 
+*   **Native Feel:** The interface opens in a dedicated, borderless window without an address bar or browser tabs, feeling exactly like a native desktop app.
+
+---
+
 ## 📦 Installation & Setup
 
 **1. Enable the Copr Repository**
@@ -134,6 +162,16 @@ sudo dnf install openclaw-cli
 sudo dnf install openclaw-desktop
 
 ```
+*(Note: The `openclaw-desktop` package depends on the `openclaw-cli` package.)*
+
+* **🛠️ Managing the PWA Experience and Installation:**
+If you want to ditch the Electron app and use the lightweight PWA launcher instead, install the WebUI and the CLI daemon:
+```bash
+sudo dnf install openclaw-pwa-webui openclaw-cli
+
+```
+
+*(Note: If you previously installed `openclaw-desktop`, you can safely remove it with `sudo dnf remove openclaw-desktop` before running this).*
 
 ---
 
@@ -196,14 +234,25 @@ sudo dnf install openclaw-cli-2026.10.1
 
 ## 🗑️ Removal & Teardown
 
-**Uninstall Packages:**
++ **Uninstall Packages:**
 Remove all OpenClaw components from the system:
 
-```bash
-sudo dnf remove openclaw openclaw-cli openclaw-desktop
+```
+sudo dnf remove openclaw openclaw-cli openclaw-desktop openclaw-pwa-webui
 
 ```
 
++ If you wish to uninstall the PWA wrapper and revert to terminal-only usage or the thick Electron client:
+
+```
+sudo dnf remove openclaw-pwa-webui
+
+```
+
++ Uninstall only `openclaw-desktop` package:
+
+* The `openclaw-desktop` package depends on the `openclaw-cli` package. If you remove the `openclaw-desktop` package, the `openclaw-cli` package will also be removed.*
+  
 ### **Easy path** (CLI still installed):
 
 The command attempts independent requested cleanup scopes and returns a nonzero status if any scope fails or is blocked. Service teardown remains the safety gate for state and workspace deletion; if that gate fails, those data scopes are preserved while app cleanup is still attempted. Partial cleanup is reported explicitly and is never followed by an unconditional completion result.
@@ -336,13 +385,14 @@ sudo dnf install openclaw
 
 ---
 
-### Run
+### Run / Usage
 
 * **desktop gui:**
 ```
 openclaw-desktop
 
 ```
+____
 
 * **Terminal CLI:**
 ```
@@ -360,26 +410,44 @@ openclaw onboard
 See [CLI DOCS](https://docs.openclaw.ai/cli)
 See [Onboarding DOCS](https://docs.openclaw.ai/start/wizard)
 
-* **TUI:**
-```
-openclaw tui
+____
 
-```
-or
+* **TUI:**
 ```
 openclaw-tui
 
 ```
+or
 
+```
+openclaw tui
+
+```
 See [TUI DOCS](https://docs.openclaw.ai/cli/tui/) for Other TUI commands
 
-* **WebUI / Dashboard CLI or PWA:**
+____
+
+* **Dashboard CLI:**
 ```
 openclaw dashboard
 
 ```
-
 See [Dashboard DOCS](https://docs.openclaw.ai/cli/dashboard)
+
+____
+
+* **PWA (Progressive Web Application) / WebUI App Usage:**
+You do not need to use the terminal to start the app.
+
+* Simply open your GNOME/KDE application grid and click the **OpenClaw PWA** icon.
+* The script will silently ensure the background Gateway daemon is running, generate your secure token, and open the UI in your default browser.
+* Alternatively, you can launch it from the terminal via:
+```
+openclaw-webui
+
+```
+
+____
 
 * **main command:**
 ```
@@ -421,38 +489,6 @@ Then refresh your font cache using `fc-cache -fv`.
 * Packaging scripts, CI/CD workflows, and `.spec` files provided in this repository are licensed under the [MIT License](https://github.com/universish/OpenClaw..Copr..CI/blob/main/LICENSE).
 * The underlying OpenClaw application and its prebuilt binaries are governed by upstream licensing terms. The core OpenClaw repository is licensed under the [MIT License](https://github.com/openclaw/openclaw/blob/main/LICENSE).
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+---
 
 > **Note**: Installing with superuser privileges (`sudo`) is at the user's discretion; no responsibility is accepted for local machine modifications.
-
----
-
-## Feedback & Issues
-
-This repository is an unofficial packaging pipeline intended to simplify installing and updating OpenClaw on Fedora.
-
-* Please report any RPM packaging or Copr installation issues in our [Issue Tracker](https://www.google.com/search?q=https://github.com/universish/OpenClaw..Copr..CI/issues).
-* For upstream application bugs, feature requests, or documentation, visit the official [OpenClaw Website](https://openclaw.ai) or the official [GitHub Repository](https://github.com/openclaw/openclaw).
-
----
-
-## License
-
-* Packaging scripts, GitHub Actions workflows, and spec files in this repository are licensed under the [MIT License](https://github.com/universish/OpenClaw..Copr..CI/blob/main/LICENSE).
-* The underlying OpenClaw application and prebuilt binaries are governed by upstream OpenClaw licensing terms. OpenClaw repository are licensed under the [MIT LICENSE](https://github.com/openclaw/openclaw/blob/main/LICENSE)
