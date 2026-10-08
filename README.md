@@ -105,7 +105,9 @@ Everything else follows the guidelines stringently:
 │   ├── openclaw-desktop.spec                  # RPM spec for the Electron GUI client
 │   ├── openclaw-pwa-webui.spec                # RPM spec for the PWA WebUI client
 │   ├── openclaw.spec                         # RPM meta-package router
-│   └── rpmlintrc                              # Audit suppression for prebuilt blob constraints                            
+│   └── rpmlintrc                              # Audit suppression for prebuilt blob constraints
+├── icon/
+│   └── 32.png, 48.png, 64.png, 96.png, 128.png, 180.png, 256.png from PWA's "Icons" file
 └── README.md
 
 ```
