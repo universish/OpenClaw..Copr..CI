@@ -406,6 +406,16 @@ This repository is a community-driven packaging pipeline designed to simplify th
 
 ---
 
+## **White Screen / Application Hang on Launch**
+If OpenClaw launches into an unresponsive white screen on Fedora, it is likely caused by an upstream Chromium/Skia bug crashing when reading certain `COLRv1` color fonts. You can resolve this by removing conflicting font packages:
+```
+sudo dnf remove google-noto-color-emoji-fonts hfg-gmuend-openmoji-color-fonts
+
+```
+Then refresh your font cache using `fc-cache -fv`.
+
+---
+
 ## 📜 License
 
 * Packaging scripts, CI/CD workflows, and `.spec` files provided in this repository are licensed under the [MIT License](https://github.com/universish/OpenClaw..Copr..CI/blob/main/LICENSE).
