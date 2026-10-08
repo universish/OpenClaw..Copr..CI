@@ -28,6 +28,7 @@ OpenClaw Desktop GUI Client powered by Electron. This package provides the graph
 %build
 
 %install
+%install
 rm -rf %{buildroot}
 
 mkdir -p %{buildroot}/opt/openclaw-desktop
@@ -42,7 +43,7 @@ mkdir -p %{buildroot}%{_bindir}
 cat << 'EOF' > %{buildroot}%{_bindir}/openclaw-desktop
 #!/usr/bin/env bash
 
-# Electron Wayland/GPU beyaz ekran ve kapanma donmalarını çözen native bayraklar
+# Electron Wayland odaklanma ve native GPU uyumluluk bayrakları
 ELECTRON_OPTS="--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations"
 
 if [ -x /opt/openclaw-desktop/AppRun ]; then
@@ -71,7 +72,8 @@ Exec=/usr/bin/openclaw-desktop
 Icon=openclaw
 Type=Application
 StartupNotify=true
-StartupWMClass=Openclaw-desktop
+# Dock üzerindeki yeni pencerelerin tek ikonda gruplanması için xprop WM_CLASS eşleşmesi
+StartupWMClass=openclaw-desktop
 Terminal=false
 Categories=Utility;Network;Chat;
 EOF
