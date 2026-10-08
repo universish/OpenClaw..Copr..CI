@@ -112,7 +112,7 @@ Exec=/usr/bin/openclaw-webui
 Icon=openclaw
 Type=Application
 StartupNotify=true
-StartupWMClass=openclaw-webui
+StartupWMClass=openclaw-webui;crx_elaofidhnjoejcebffgfmpicgbdhdgcp
 Terminal=false
 Categories=Utility;Network;Chat;
 EOF
