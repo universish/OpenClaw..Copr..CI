@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Zorlanacak Sürüm (Örn: 2026.10.5 - Boş bırakılırsa güncel sürümü çeker)'
+        description: 'Zorlanacak Sürüm (Örn: 2026.9.6 - Boş bırakılırsa güncel sürümü çeker)'
         required: false
         type: string
       force_release:
@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+
+# Peş peşe çoklu tetiklemelerde git push çakışmasını (race condition) ön하기 için kuyruk sistemi
+concurrency:
+  group: copr-packaging-pipeline
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -37,6 +42,7 @@ jobs:
       desktop_version: ${{ steps.check.outputs.desktop_version }}
       pkg_release: ${{ steps.check.outputs.pkg_release }}
       state_record: ${{ steps.check.outputs.state_record }}
+      should_update_file: ${{ steps.check.outputs.should_update_file }}
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
@@ -48,13 +54,19 @@ jobs:
 
       - name: Sürümleri ve Paket Numarasını (Release) Hesapla
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           FORCE_VER="${{ github.event.inputs.force_version }}"
           FORCE_REL="${{ github.event.inputs.force_release }}"
           REBUILD_SAME="${{ github.event.inputs.rebuild_same_version }}"
           REPO="openclaw/openclaw"
 
-          RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
+          # HTTP 403 Rate Limit hatasını önlemek için GITHUB_TOKEN ile kimlik doğrulamalı API çağrısı
+          RELEASES_JSON=$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO}/releases?per_page=100")
 
           if [ -n "$FORCE_VER" ]; then
             CLI_VERSION="$FORCE_VER"
@@ -92,16 +104,24 @@ jobs:
             SAVED_REL="1"
           fi
 
-          echo "Tespit Edilen Upstream Sürümü : $CLI_VERSION (Desktop: $DESKTOP_VERSION)"
-          echo "Depodaki Kayıtlı Sürüm        : $SAVED_VER (Son Paket No: $SAVED_REL)"
+          echo "Tespit Edilen Hedef Sürüm : $CLI_VERSION (Desktop: $DESKTOP_VERSION)"
+          echo "Depodaki Kayıtlı Sürüm    : $SAVED_VER (Son Paket No: $SAVED_REL)"
 
-          # Sürüm ve Paket Numarası (Release) Mantığı:
-          # - Yeni sürüm yayınlandıysa: Paket numarası 1'den başlar (Sıfırlanır).
-          # - Aynı sürüm yeniden derleniyorsa (spec düzeltmesi vb.): Paket numarası +1 artar (Örn: 2026.10.5-2).
+          SHOULD_UPDATE_FILE="true"
+
+          # Sürüm ve Paket Numarası (Release) Mantığı
           if [ "$CLI_VERSION" != "$SAVED_VER" ]; then
             HAS_UPDATE="true"
             PKG_RELEASE="1"
-            echo "Yeni sürüm tespit edildi! Paket sayacı 1 olarak sıfırlandı: ${CLI_VERSION}-${PKG_RELEASE}"
+            # Eğer manuel olarak eski bir sürüm derleniyorsa (Örn: 2026.9.6 < 2026.10.5),
+            # paket derlensin ama latest-version.txt dosyası eski sürüme düşürülmesin.
+            if [ -n "$SAVED_VER" ]; then
+              HIGHEST_VER=$(printf "%s\n%s\n" "$SAVED_VER" "$CLI_VERSION" | sort -V | tail -n 1)
+              if [ "$HIGHEST_VER" != "$CLI_VERSION" ]; then
+                SHOULD_UPDATE_FILE="false"
+                echo "Bilgi: Geçmiş bir sürüm ($CLI_VERSION) derleniyor. latest-version.txt ($SAVED_VER) korunacak."
+              fi
+            fi
           elif [ -n "$FORCE_VER" ] || [ -n "$FORCE_REL" ] || [ "$REBUILD_SAME" == "true" ]; then
             HAS_UPDATE="true"
             PKG_RELEASE=$((SAVED_REL + 1))
@@ -109,6 +129,7 @@ jobs:
           else
             HAS_UPDATE="false"
             PKG_RELEASE="$SAVED_REL"
+            SHOULD_UPDATE_FILE="false"
             echo "Yeni güncelleme yok (${CLI_VERSION}-${SAVED_REL}). İş akışı sonlandırılıyor."
           fi
 
@@ -123,6 +144,7 @@ jobs:
           echo "desktop_version=$DESKTOP_VERSION" >> $GITHUB_OUTPUT
           echo "pkg_release=$PKG_RELEASE" >> $GITHUB_OUTPUT
           echo "state_record=$STATE_RECORD" >> $GITHUB_OUTPUT
+          echo "should_update_file=$SHOULD_UPDATE_FILE" >> $GITHUB_OUTPUT
 
   # =========================================================================
   # 2. AŞAMA: İNDİR, AÇ, SPEC İLE PAKETLE VE 11 DAĞITIM İÇİN COPR'A GÖNDER
@@ -158,20 +180,40 @@ jobs:
           fi
 
       - name: Kaynak Paketleri İndir ve Hazırla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CLI_VERSION="${{ needs.check_update.outputs.cli_version }}"
           DESKTOP_VERSION="${{ needs.check_update.outputs.desktop_version }}"
           FORCE_VER="${{ github.event.inputs.force_version }}"
           REPO="openclaw/openclaw"
 
-          RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
+          # HTTP 403 hatasını önlemek için GITHUB_TOKEN ile kimlik doğrulamalı sorgu
+          RELEASES_JSON=$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO}/releases?per_page=100")
 
           if [ -n "$FORCE_VER" ]; then
-            DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
-            if [ -z "$DESKTOP_RELEASE" ] || [ "$DESKTOP_RELEASE" == "null" ]; then
+            # Önce doğrudan etiket (tag) üzerinden sorgula (Eski sürümler 100'lük listede olmasa bile bulur)
+            TAG_JSON=$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${REPO}/releases/tags/v${FORCE_VER}" 2>/dev/null || echo "")
+
+            if [ -n "$TAG_JSON" ] && [ "$(echo "$TAG_JSON" | jq -r '.tag_name // empty')" == "v${FORCE_VER}" ]; then
+              DESKTOP_RELEASE="$TAG_JSON"
+              CLI_RELEASE="$TAG_JSON"
+            else
+              DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
+              CLI_RELEASE="$DESKTOP_RELEASE"
+            fi
+
+            # Eğer o sürümde masaüstü ikilisi (.AppImage/.deb) yayınlanmamışsa en yakın masaüstü sürümünü kullan
+            HAS_DESK_ASSET=$(echo "$DESKTOP_RELEASE" | jq -r '[.assets[]? | select(.name | test("\\.(AppImage|deb)$"; "i"))] | length' 2>/dev/null || echo "0")
+            if [ -z "$DESKTOP_RELEASE" ] || [ "$DESKTOP_RELEASE" == "null" ] || [ "$HAS_DESK_ASSET" == "0" ]; then
               DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.(AppImage|deb)$"; "i")))] | .[0]')
             fi
-            CLI_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
           else
             DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.(AppImage|deb)$"; "i")))] | .[0]')
             CLI_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.tar\\.(gz|xz)$"; "i")))] | .[0]')
@@ -186,13 +228,13 @@ jobs:
           cd workdir_desktop
           if [ -n "$APPIMAGE_URL" ] && [ "$APPIMAGE_URL" != "null" ]; then
             echo "Desktop AppImage indiriliyor: $APPIMAGE_URL"
-            curl -fsSL -o package.AppImage "$APPIMAGE_URL"
+            curl -fsSL --retry 3 -o package.AppImage "$APPIMAGE_URL"
             chmod +x package.AppImage
             ./package.AppImage --appimage-extract
             cp -a squashfs-root/* ../bundle_desktop/app/
           elif [ -n "$DEB_URL" ] && [ "$DEB_URL" != "null" ]; then
             echo "Desktop deb indiriliyor: $DEB_URL"
-            curl -fsSL -o package.deb "$DEB_URL"
+            curl -fsSL --retry 3 -o package.deb "$DEB_URL"
             ar x package.deb
             tar -xf data.tar.* -C ../app_extracted/
             OPT_DIR=$(find ../app_extracted/opt -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
@@ -221,7 +263,7 @@ jobs:
           cd workdir_cli
           if [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
             echo "CLI Tarball indiriliyor: $TAR_URL"
-            curl -fsSL -o package.tar.gz "$TAR_URL"
+            curl -fsSL --retry 3 -o package.tar.gz "$TAR_URL"
             tar -xf package.tar.gz -C ../bundle_cli/app/ --strip-components=1 2>/dev/null || tar -xf package.tar.gz -C ../bundle_cli/app/
           else
             echo "CLI npm'den derleniyor..."
@@ -275,7 +317,6 @@ jobs:
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-pwa-webui.spec
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw.spec
 
-          # İstenen 11 Dağıtım ve Mimari Hedefi (Fedora Copr Chroot İsimleri)
           CHROOTS=(
             "almalinux-10-x86_64_v2"
             "almalinux-9-x86_64"
@@ -295,11 +336,9 @@ jobs:
             CHROOT_ARGS+=("--chroot" "$ch")
           done
 
-          # Copr projesinde bu 11 chroot'un tamamını otomatik olarak etkinleştir
           echo "Copr projesinde hedef dağıtımlar etkinleştiriliyor..."
           copr-cli --config "$HOME/.config/copr" modify "${CHROOT_ARGS[@]}" "$COPR_REPO" || true
 
-          # Her SRPM paketini tüm aktif chroot'lar için Copr'a gönder
           for srpm in rpmbuild/SRPMS/*.src.rpm; do
             echo "Copr'a gönderiliyor: $srpm (Sürüm: ${CLI_VER}-${RELEASE})"
             copr-cli --config "$HOME/.config/copr" build --nowait "${CHROOT_ARGS[@]}" "$COPR_REPO" "$srpm" || \
@@ -312,24 +351,37 @@ jobs:
   update_version_file:
     name: 3. Sürüm Kaydını Güncelle
     needs: [check_update, build_and_publish]
-    if: needs.check_update.outputs.has_update == 'true'
+    if: needs.check_update.outputs.has_update == 'true' && needs.check_update.outputs.should_update_file == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
 
-      - name: latest-version.txt Dosyasını Güncelle ve Gönder
+      - name: latest-version.txt Dosyasını Çakışmasız Güncelle ve Gönder
         run: |
           NEW_STATE="${{ needs.check_update.outputs.state_record }}"
-          echo "$NEW_STATE" > latest-version.txt
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add latest-version.txt
-          if ! git diff --staged --quiet; then
+          # Uzak depoda başka bir commit varsa çekip çakışmayı önle (Retry döngüsü)
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            echo "$NEW_STATE" > latest-version.txt
+            git add latest-version.txt
+
+            if git diff --staged --quiet; then
+              echo "Sürüm dosyası zaten ${NEW_STATE} olarak güncel."
+              break
+            fi
+
             git commit -m "chore: bump tracked build to ${NEW_STATE} [skip ci]"
-            git push
-          else
-            echo "Sürüm dosyasında değişiklik yok."
-          fi
+            if git push origin HEAD:main; then
+              echo "Başarıyla güncellendi: ${NEW_STATE}"
+              break
+            else
+              echo "Push çakışması yaşandı, tekrar deneniyor ($attempt/3)..."
+              sleep 2
+            fi
+          done
