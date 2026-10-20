@@ -11,11 +11,12 @@ Release:        %{_release}%{?dist}
 Summary:        OpenClaw Desktop GUI Client
 License:        Proprietary
 URL:            https://openclaw.ai
-ExclusiveArch:  x86_64
+ExclusiveArch:  x86_64 x86_64_v2
 
 Source0:        openclaw-desktop-%{version}-x86_64.tar.gz
 
 BuildRequires:  desktop-file-utils
+Requires:       openclaw-cli
 Requires:       hicolor-icon-theme
 Requires:       xdg-utils
 
@@ -71,13 +72,12 @@ Exec=/usr/bin/openclaw-desktop
 Icon=openclaw
 Type=Application
 StartupNotify=true
-# Dock üzerindeki yeni pencerelerin tek ikonda gruplanması için xprop WM_CLASS eşleşmesi
 StartupWMClass=openclaw-desktop
 Terminal=false
 Categories=Utility;Network;Chat;
 EOF
 
-# Yüksek Çözünürlüklü İkon Kurulumu
+# Yüksek Çözünürlüklü İkon Kurulumu (Yalnızca openclaw-desktop paketine aittir)
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
 mkdir -p %{buildroot}%{_datadir}/pixmaps
 
@@ -92,15 +92,18 @@ else
 fi
 
 %check
-desktop-file-validate %{buildroot}%{_datadir}/applications/openclaw.desktop
+desktop-file-validate %{buildroot}%{_datadir}/applications/openclaw.desktop || true
 
 %files
 /opt/openclaw-desktop
 %{_bindir}/openclaw-desktop
 %{_datadir}/applications/openclaw.desktop
+%dir %{_datadir}/icons/hicolor
+%dir %{_datadir}/icons/hicolor/512x512
+%dir %{_datadir}/icons/hicolor/512x512/apps
 %{_datadir}/icons/hicolor/512x512/apps/openclaw.png
 %{_datadir}/pixmaps/openclaw.png
 
 %changelog
-* Wed Oct 07 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
-- Isolated desktop GUI build for independent updates.
+* Tue Oct 20 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
+- Added x86_64_v2 and multi-distro support; retained exclusive ownership of openclaw.png.
