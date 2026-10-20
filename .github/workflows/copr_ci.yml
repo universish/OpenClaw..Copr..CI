@@ -8,11 +8,19 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Zorlanacak Sürüm (Örn: 2026.9.8 - Boş bırakılırsa sadece yeni sürüm kontrolü yapar)'
+        description: 'Zorlanacak Sürüm (Örn: 2026.10.5 - Boş bırakılırsa güncel sürümü çeker)'
         required: false
         type: string
+      force_release:
+        description: 'Zorlanacak Paket Numarası (Örn: 2 - Boş bırakılırsa yeni sürümde 1 olur, aynı sürümde +1 artar)'
+        required: false
+        type: string
+      rebuild_same_version:
+        description: 'Yeni sürüm olmasa bile mevcut sürümü (+1 paket numarasıyla) yeniden paketle'
+        required: false
+        default: false
+        type: boolean
 
-# 3. aşamada latest-version.txt dosyasını güncelleyip pushlayabilmek için yazma izni
 permissions:
   contents: write
 
@@ -27,7 +35,8 @@ jobs:
       has_update: ${{ steps.check.outputs.has_update }}
       cli_version: ${{ steps.check.outputs.cli_version }}
       desktop_version: ${{ steps.check.outputs.desktop_version }}
-      combined_version: ${{ steps.check.outputs.combined_version }}
+      pkg_release: ${{ steps.check.outputs.pkg_release }}
+      state_record: ${{ steps.check.outputs.state_record }}
     steps:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
@@ -37,69 +46,86 @@ jobs:
         with:
           node-version: 24
 
-      - name: Sürümleri Kontrol Et ve Karşılaştır
+      - name: Sürümleri ve Paket Numarasını (Release) Hesapla
         id: check
         run: |
           FORCE_VER="${{ github.event.inputs.force_version }}"
+          FORCE_REL="${{ github.event.inputs.force_release }}"
+          REBUILD_SAME="${{ github.event.inputs.rebuild_same_version }}"
           REPO="openclaw/openclaw"
-          
+
           RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
-          
+
           if [ -n "$FORCE_VER" ]; then
             CLI_VERSION="$FORCE_VER"
             DESKTOP_VERSION="$FORCE_VER"
           else
-            # Yalnızca içinde AppImage veya deb varlığı bulunan releases etiketlerini filtrele
             DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.(AppImage|deb)$"; "i")))] | .[0]')
             DESKTOP_VERSION=$(echo "$DESKTOP_RELEASE" | jq -r .tag_name | sed 's/^v//')
-            
-            # Yalnızca içinde tarball varlığı bulunan releases etiketlerini filtrele
+
             CLI_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.tar\\.(gz|xz)$"; "i")))] | .[0]')
             CLI_VERSION=$(echo "$CLI_RELEASE" | jq -r .tag_name | sed 's/^v//')
-            
-            # Upstream tarball yayınlamadıysa NPM üzerinden CLI sürümünü doğrula
+
             if [ "$CLI_VERSION" == "null" ] || [ -z "$CLI_VERSION" ]; then
               CLI_VERSION=$(npm view openclaw version 2>/dev/null)
             fi
+            if [ "$DESKTOP_VERSION" == "null" ] || [ -z "$DESKTOP_VERSION" ]; then
+              DESKTOP_VERSION="$CLI_VERSION"
+            fi
           fi
 
-          echo "Tespit Edilen CLI Sürümü: $CLI_VERSION"
-          echo "Tespit Edilen Desktop Sürümü: $DESKTOP_VERSION"
-
-          # Depodaki mevcut sürümü oku (latest-version.txt)
-          CURRENT_VER=""
+          # Depodaki mevcut kaydı oku (Format: SÜRÜM-PAKET_NO veya sadece SÜRÜM)
+          RAW_RECORD=""
           if [ -f "latest-version.txt" ]; then
-            CURRENT_VER=$(head -n 1 latest-version.txt | tr -d '[:space:]')
-          fi
-          echo "Depodaki Kayıtlı Sürüm: '$CURRENT_VER'"
-
-          # Hem CLI hem Desktop sürüm değişimlerini yakalamak için kontrol değeri
-          # Eğer ikisi aynıysa tek sürüm (Örn: 2026.9.8), farklıysa birleşik veya öncelikli kontrol
-          if [ "$CLI_VERSION" == "$DESKTOP_VERSION" ] || [ "$DESKTOP_VERSION" == "null" ] || [ -z "$DESKTOP_VERSION" ]; then
-            TARGET_STATE="$CLI_VERSION"
-          else
-            TARGET_STATE="cli:${CLI_VERSION}_desk:${DESKTOP_VERSION}"
+            RAW_RECORD=$(head -n 1 latest-version.txt | tr -d '[:space:]')
           fi
 
-          # Yeni sürüm kontrolü
-          if [ -n "$FORCE_VER" ]; then
-            echo "Manuel sürüm zorlandı ($FORCE_VER). Paketleme aşamasına geçiliyor..."
-            HAS_UPDATE="true"
-          elif [ "$TARGET_STATE" != "$CURRENT_VER" ] && [ "$CLI_VERSION" != "$CURRENT_VER" ]; then
-            echo "Yeni güncelleme tespit edildi! ($CURRENT_VER -> $TARGET_STATE)"
-            HAS_UPDATE="true"
+          if [[ "$RAW_RECORD" == *-* ]]; then
+            SAVED_VER="${RAW_RECORD%-*}"
+            SAVED_REL="${RAW_RECORD##*-}"
           else
-            echo "Yeni bir güncelleme yok. Mevcut sürüm ($CURRENT_VER) güncel. İş akışı sonlandırılıyor."
+            SAVED_VER="$RAW_RECORD"
+            SAVED_REL="1"
+          fi
+
+          if ! [[ "$SAVED_REL" =~ ^[0-9]+$ ]]; then
+            SAVED_REL="1"
+          fi
+
+          echo "Tespit Edilen Upstream Sürümü : $CLI_VERSION (Desktop: $DESKTOP_VERSION)"
+          echo "Depodaki Kayıtlı Sürüm        : $SAVED_VER (Son Paket No: $SAVED_REL)"
+
+          # Sürüm ve Paket Numarası (Release) Mantığı:
+          # - Yeni sürüm yayınlandıysa: Paket numarası 1'den başlar (Sıfırlanır).
+          # - Aynı sürüm yeniden derleniyorsa (spec düzeltmesi vb.): Paket numarası +1 artar (Örn: 2026.10.5-2).
+          if [ "$CLI_VERSION" != "$SAVED_VER" ]; then
+            HAS_UPDATE="true"
+            PKG_RELEASE="1"
+            echo "Yeni sürüm tespit edildi! Paket sayacı 1 olarak sıfırlandı: ${CLI_VERSION}-${PKG_RELEASE}"
+          elif [ -n "$FORCE_VER" ] || [ -n "$FORCE_REL" ] || [ "$REBUILD_SAME" == "true" ]; then
+            HAS_UPDATE="true"
+            PKG_RELEASE=$((SAVED_REL + 1))
+            echo "Aynı sürüm üzerinde yeniden paketleme istendi. Paket numarası artırıldı: ${CLI_VERSION}-${PKG_RELEASE}"
+          else
             HAS_UPDATE="false"
+            PKG_RELEASE="$SAVED_REL"
+            echo "Yeni güncelleme yok (${CLI_VERSION}-${SAVED_REL}). İş akışı sonlandırılıyor."
           fi
+
+          if [ -n "$FORCE_REL" ]; then
+            PKG_RELEASE="$FORCE_REL"
+          fi
+
+          STATE_RECORD="${CLI_VERSION}-${PKG_RELEASE}"
 
           echo "has_update=$HAS_UPDATE" >> $GITHUB_OUTPUT
           echo "cli_version=$CLI_VERSION" >> $GITHUB_OUTPUT
           echo "desktop_version=$DESKTOP_VERSION" >> $GITHUB_OUTPUT
-          echo "combined_version=$TARGET_STATE" >> $GITHUB_OUTPUT
+          echo "pkg_release=$PKG_RELEASE" >> $GITHUB_OUTPUT
+          echo "state_record=$STATE_RECORD" >> $GITHUB_OUTPUT
 
   # =========================================================================
-  # 2. AŞAMA: İNDİR, AÇ, SPEC İLE YENİDEN PAKETLE VE COPR'A GÖNDER
+  # 2. AŞAMA: İNDİR, AÇ, SPEC İLE PAKETLE VE 11 DAĞITIM İÇİN COPR'A GÖNDER
   # =========================================================================
   build_and_publish:
     name: 2. Paketleme ve Copr Yayınlama
@@ -142,7 +168,10 @@ jobs:
 
           if [ -n "$FORCE_VER" ]; then
             DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
-            CLI_RELEASE="$DESKTOP_RELEASE"
+            if [ -z "$DESKTOP_RELEASE" ] || [ "$DESKTOP_RELEASE" == "null" ]; then
+              DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.(AppImage|deb)$"; "i")))] | .[0]')
+            fi
+            CLI_RELEASE=$(echo "$RELEASES_JSON" | jq -c --arg v "v$FORCE_VER" '.[] | select(.tag_name == $v)' | head -n 1)
           else
             DESKTOP_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.(AppImage|deb)$"; "i")))] | .[0]')
             CLI_RELEASE=$(echo "$RELEASES_JSON" | jq -c '[.[] | select(.assets != null and (.assets | length > 0)) | select(any(.assets[]; .name | test("\\.tar\\.(gz|xz)$"; "i")))] | .[0]')
@@ -206,15 +235,15 @@ jobs:
           tar -czf "openclaw-cli-${CLI_VERSION}-x86_64.tar.gz" "openclaw-cli-${CLI_VERSION}-x86_64"
           rm -rf workdir_cli "openclaw-cli-${CLI_VERSION}-x86_64"
 
-      - name: 4'lü SRPM Mimarisini Derle ve Copr'a Gönder
+      - name: 4'lü SRPM Mimarisini Derle ve 11 Chroot İçin Copr'a Gönder
         run: |
           CLI_VER="${{ needs.check_update.outputs.cli_version }}"
           DESK_VER="${{ needs.check_update.outputs.desktop_version }}"
-          RELEASE="1"
+          RELEASE="${{ needs.check_update.outputs.pkg_release }}"
+          COPR_REPO="universish/OpenClaw.."
 
           mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 
-          # Depodaki özel logoyu SOURCES altına al
           if [ -f "assets/openclaw.png" ]; then
             cp assets/openclaw.png rpmbuild/SOURCES/openclaw.png
           elif [ -f "icon/256.png" ]; then
@@ -246,10 +275,39 @@ jobs:
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw-pwa-webui.spec
           rpmbuild -bs --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/openclaw.spec
 
-          copr-cli --config "$HOME/.config/copr" build --nowait "universish/OpenClaw.." rpmbuild/SRPMS/*.src.rpm
+          # İstenen 11 Dağıtım ve Mimari Hedefi (Fedora Copr Chroot İsimleri)
+          CHROOTS=(
+            "almalinux-10-x86_64_v2"
+            "almalinux-9-x86_64"
+            "almalinux-kitten-10-x86_64"
+            "almalinux-kitten-10-x86_64_v2"
+            "centos-stream-10-x86_64"
+            "centos-stream-9-x86_64"
+            "fedora-44-x86_64"
+            "fedora-45-x86_64"
+            "fedora-rawhide-x86_64"
+            "opensuse-leap-16.0-x86_64"
+            "opensuse-tumbleweed-x86_64"
+          )
+
+          CHROOT_ARGS=()
+          for ch in "${CHROOTS[@]}"; do
+            CHROOT_ARGS+=("--chroot" "$ch")
+          done
+
+          # Copr projesinde bu 11 chroot'un tamamını otomatik olarak etkinleştir
+          echo "Copr projesinde hedef dağıtımlar etkinleştiriliyor..."
+          copr-cli --config "$HOME/.config/copr" modify "${CHROOT_ARGS[@]}" "$COPR_REPO" || true
+
+          # Her SRPM paketini tüm aktif chroot'lar için Copr'a gönder
+          for srpm in rpmbuild/SRPMS/*.src.rpm; do
+            echo "Copr'a gönderiliyor: $srpm (Sürüm: ${CLI_VER}-${RELEASE})"
+            copr-cli --config "$HOME/.config/copr" build --nowait "${CHROOT_ARGS[@]}" "$COPR_REPO" "$srpm" || \
+            copr-cli --config "$HOME/.config/copr" build --nowait "$COPR_REPO" "$srpm"
+          done
 
   # =========================================================================
-  # 3. AŞAMA: YENİ SÜRÜM BİLGİSİNİ DEPOYA KAYDET (COMMIT & PUSH)
+  # 3. AŞAMA: YENİ SÜRÜM VE PAKET NUMARASINI DEPOYA KAYDET (COMMIT & PUSH)
   # =========================================================================
   update_version_file:
     name: 3. Sürüm Kaydını Güncelle
@@ -262,15 +320,15 @@ jobs:
 
       - name: latest-version.txt Dosyasını Güncelle ve Gönder
         run: |
-          NEW_VER="${{ needs.check_update.outputs.combined_version }}"
-          echo "$NEW_VER" > latest-version.txt
+          NEW_STATE="${{ needs.check_update.outputs.state_record }}"
+          echo "$NEW_STATE" > latest-version.txt
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add latest-version.txt
           if ! git diff --staged --quiet; then
-            git commit -m "chore: bump tracked version to ${NEW_VER} [skip ci]"
+            git commit -m "chore: bump tracked build to ${NEW_STATE} [skip ci]"
             git push
           else
             echo "Sürüm dosyasında değişiklik yok."
