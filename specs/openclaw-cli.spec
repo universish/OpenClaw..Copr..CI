@@ -11,7 +11,7 @@ Release:        %{_release}%{?dist}
 Summary:        OpenClaw CLI, TUI and Gateway Engine
 License:        Proprietary
 URL:            https://openclaw.ai
-ExclusiveArch:  x86_64
+ExclusiveArch:  x86_64 x86_64_v2
 
 Source0:        openclaw-cli-%{version}-x86_64.tar.gz
 
@@ -64,6 +64,8 @@ if [ $# -gt 0 ]; then
     exec /usr/bin/openclaw-cli "$@"
 elif command -v openclaw-desktop >/dev/null 2>&1 && [ -x /opt/openclaw-desktop/AppRun -o -x /opt/openclaw-desktop/OpenClaw ]; then
     exec openclaw-desktop "$@"
+elif command -v openclaw-webui >/dev/null 2>&1; then
+    exec openclaw-webui "$@"
 else
     exec /usr/bin/openclaw-cli dashboard "$@"
 fi
@@ -77,5 +79,5 @@ chmod +x %{buildroot}%{_bindir}/openclaw
 %{_bindir}/openclaw-tui
 
 %changelog
-* Wed Oct 07 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
-- Isolated CLI and TUI motor build for dynamic release tracking.
+* Tue Oct 20 2026 Saffet Yavuz <universish@tutamail.com> - %{version}-%{release}
+- Added x86_64_v2 architecture support for AlmaLinux 10 and AlmaLinux Kitten 10.
